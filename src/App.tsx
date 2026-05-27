@@ -153,11 +153,6 @@ function App() {
         </div>
       </header>
 
-      <div className="token-bar connected">
-        <span className="token-bar-label">HubSpot Token Secured</span>
-        <span className="token-hint">Server-side only. This frontend is using the protected Vercel/local API, not exposing the token in browser code.</span>
-      </div>
-
       <div className="filters-bar">
         <span className="filter-label">Filters</span>
         <select className="filter-select" value={filters.bookedBy} onChange={(event) => updateFilter('bookedBy', event.target.value as DashboardFilters['bookedBy'])}>
