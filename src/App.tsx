@@ -12,7 +12,6 @@ const DEFAULT_FILTERS: DashboardFilters = {
   inferredInterstate: 'all',
 }
 
-const REFRESH_INTERVAL_MS = 30_000
 const PAGE_SIZE = 25
 
 function App() {
@@ -21,27 +20,8 @@ function App() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [refreshTick, setRefreshTick] = useState(0)
-  const [secondsToRefresh, setSecondsToRefresh] = useState(REFRESH_INTERVAL_MS / 1000)
   const [tableSearch, setTableSearch] = useState('')
   const [page, setPage] = useState(1)
-
-  useEffect(() => {
-    const interval = window.setInterval(() => {
-      setLoading(true)
-      setRefreshTick((current) => current + 1)
-      setSecondsToRefresh(REFRESH_INTERVAL_MS / 1000)
-    }, REFRESH_INTERVAL_MS)
-
-    return () => window.clearInterval(interval)
-  }, [])
-
-  useEffect(() => {
-    const timer = window.setInterval(() => {
-      setSecondsToRefresh((current) => (current <= 1 ? REFRESH_INTERVAL_MS / 1000 : current - 1))
-    }, 1000)
-
-    return () => window.clearInterval(timer)
-  }, [])
 
   useEffect(() => {
     const params = new URLSearchParams()
@@ -145,7 +125,6 @@ function App() {
             onClick={() => {
               setLoading(true)
               setRefreshTick((current) => current + 1)
-              setSecondsToRefresh(REFRESH_INTERVAL_MS / 1000)
             }}
           >
             Refresh
@@ -210,7 +189,7 @@ function App() {
 
       <main className="main">
         {error ? <div className="error-box">{error}</div> : null}
-        {loading ? <div className="info-box">Refreshing from HubSpot. Next auto refresh in {secondsToRefresh}s.</div> : null}
+        {loading ? <div className="info-box">Refreshing from HubSpot.</div> : null}
 
         <div className="metrics-row">
           <div className="metric-card c-red">
