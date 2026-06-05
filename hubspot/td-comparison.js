@@ -21,6 +21,7 @@ function parseFilters(params) {
     endDate: params.get('endDate') || '',
     vehicleState: params.get('vehicleState') || 'all',
     userState: params.get('userState') || 'all',
+    interstate: params.get('interstate') || 'all',
     inferredInterstate: params.get('inferredInterstate') || 'all',
   }
 }
@@ -43,7 +44,10 @@ async function fetchTDDeals(startEpochMs) {
   let after
   do {
     const payload = {
-      filterGroups: [{ filters: [{ propertyName: 'td_booking_slot_date', operator: 'GTE', value: String(startEpochMs) }] }],
+      filterGroups: [{ filters: [
+        { propertyName: 'td_booking_slot_date', operator: 'GTE', value: String(startEpochMs) },
+        { propertyName: 'test_drive_type', operator: 'EQ', value: 'TD' },
+      ] }],
       properties, limit: 100, after,
     }
     const data = await hubspotFetch('/crm/v3/objects/deals/search', { method: 'POST', body: JSON.stringify(payload) })
@@ -162,6 +166,11 @@ function matchesDeal(deal, isoDate, filters) {
   }
   if (filters.vehicleState !== 'all' && deal.vehicleState !== filters.vehicleState) return false
   if (filters.userState !== 'all' && deal.userState !== filters.userState) return false
+  if (filters.interstate !== 'all') {
+    const upper = normalizeKey(deal.interstate)
+    if (filters.interstate === 'yes' && upper !== 'YES') return false
+    if (filters.interstate === 'no' && upper !== 'NO') return false
+  }
   return true
 }
 
