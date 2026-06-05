@@ -4,6 +4,7 @@ export default async function handler(req, res) {
   try {
     const url = new URL(req.url ?? '/', 'http://localhost')
     const data = await getTDComparisonData(url.searchParams)
+
     res.statusCode = 200
     res.setHeader('Content-Type', 'application/json')
     res.end(JSON.stringify(data))
