@@ -1,6 +1,52 @@
-import { hubspotFetch, normalizeValue, normalizeKey, isExcludedEmail, isExcludedOrderId, readDealToContactAssociations, readContacts } from './shared.js'
+import {
+  hubspotFetch,
+  normalizeValue,
+  normalizeKey,
+  isExcludedEmail,
+  isExcludedOrderId,
+  readDealToContactAssociations,
+  readContacts,
+} from './shared.js'
+
+// ── Constants ────────────────────────────────────────────────────────────────
+
+const COMPLETED_TD_STATUSES = new Set(['TEST DRIVE DONE', 'COMPLETED'])
+const CUSTOMER_VALUES = new Set(['CUSTOMER'])
+const VTD_BOOKED_STATUSES = new Set(['BOOKED', 'COMPLETED'])
+const VTD_CONDUCTED_STATUSES = new Set(['COMPLETED'])
+
+// ── Filters ──────────────────────────────────────────────────────────────────
+
+function parseFilters(params) {
+  return {
+    granularity: params.get('granularity') || 'weekly',
+    bookedBy: params.get('bookedBy') || 'all',
+    startDate: params.get('startDate') || '2026-04-01',
+    endDate: params.get('endDate') || '',
+    vehicleState: params.get('vehicleState') || 'all',
+    userState: params.get('userState') || 'all',
+    interstate: params.get('interstate') || 'all',
+  }
+}
+
+// ── HubSpot fetchers ─────────────────────────────────────────────────────────
 
 async function fetchTDDeals() {
+  const properties = [
+    'order_id',
+    'dealname',
+    'test_drive_type',
+    'td_booking_slot_date',
+    'td_booked_by',
+    'test_drive_status',
+    'check_inwalk_in_date',
+    'test_drive_completed_date',
+    'booking_confirm_date',
+    'car_location_at_time_of_sale',
+    'delivery_state',
+    'interstate_sale_yesno',
+  ]
+
   const deals = []
   let after
 
@@ -9,15 +55,10 @@ async function fetchTDDeals() {
       filterGroups: [{
         filters: [{
           propertyName: 'td_booking_slot_date',
-          operator: 'GTE',
-          value: String(new Date('2026-04-01').getTime()),
+          operator: 'HAS_PROPERTY',
         }],
       }],
-      properties: [
-        'dealname','order_id','test_drive_type','td_booking_slot_date','td_booked_by',
-        'test_drive_status','check_inwalk_in_date','test_drive_completed_date',
-        'booking_confirm_date','car_location_at_time_of_sale','delivery_state','interstate_sale_yesno',
-      ],
+      properties,
       limit: 100,
       after,
     }
@@ -29,24 +70,16 @@ async function fetchTDDeals() {
 
     for (const row of data.results) {
       const p = row.properties
-      // Parse anchor date from unix ms timestamp
-      const rawTs = normalizeValue(p.td_booking_slot_date)
-      let anchorDate = ''
-      if (rawTs) {
-        const n = Number(rawTs)
-        anchorDate = isNaN(n) ? rawTs.slice(0, 10) : new Date(n).toISOString().slice(0, 10)
-      }
-
       deals.push({
         id: row.id,
         type: 'TD',
         orderId: normalizeValue(p.order_id),
         dealName: normalizeValue(p.dealname),
-        anchorDate,
+        bookedDate: normalizeValue(p.td_booking_slot_date),   // epoch ms string
         bookedBy: normalizeValue(p.td_booked_by),
         testDriveStatus: normalizeValue(p.test_drive_status),
-        checkInWalkInDate: normalizeValue(p.check_inwalk_in_date),
-        testDriveCompletedDate: normalizeValue(p.test_drive_completed_date),
+        walkInDate: normalizeValue(p.check_inwalk_in_date),
+        completedDate: normalizeValue(p.test_drive_completed_date),
         bookingConfirmDate: normalizeValue(p.booking_confirm_date),
         vehicleState: normalizeValue(p.car_location_at_time_of_sale),
         userState: normalizeValue(p.delivery_state),
@@ -61,6 +94,20 @@ async function fetchTDDeals() {
 }
 
 async function fetchVTDDeals() {
+  const properties = [
+    'order_id',
+    'dealname',
+    'test_drive_type',
+    'virtual_test_drive_status',
+    'virtual_test_drive_booked_by',
+    'vtd_date_and_time',
+    'test_drive_status',
+    'booking_confirm_date',
+    'car_location_at_time_of_sale',
+    'delivery_state',
+    'interstate_sale_yesno',
+  ]
+
   const deals = []
   let after
 
@@ -72,11 +119,7 @@ async function fetchVTDDeals() {
           operator: 'HAS_PROPERTY',
         }],
       }],
-      properties: [
-        'dealname','order_id','virtual_test_drive_status','virtual_test_drive_booked_by',
-        'vtd_date_and_time','test_drive_status','booking_confirm_date',
-        'car_location_at_time_of_sale','delivery_state','interstate_sale_yesno',
-      ],
+      properties,
       limit: 100,
       after,
     }
@@ -88,28 +131,14 @@ async function fetchVTDDeals() {
 
     for (const row of data.results) {
       const p = row.properties
-      const raw = normalizeValue(p.vtd_date_and_time)
-      let anchorDate = ''
-      if (raw) {
-        const part = raw.split(' ')[0]
-        if (part.includes('/')) {
-          const [dd, mm, yyyy] = part.split('/')
-          anchorDate = `${yyyy}-${mm.padStart(2,'0')}-${dd.padStart(2,'0')}`
-        } else {
-          anchorDate = part
-        }
-      }
-
-      if (anchorDate && anchorDate < '2026-04-01') continue
-
       deals.push({
         id: row.id,
         type: 'VTD',
         orderId: normalizeValue(p.order_id),
         dealName: normalizeValue(p.dealname),
-        anchorDate,
         vtdStatus: normalizeValue(p.virtual_test_drive_status),
         bookedBy: normalizeValue(p.virtual_test_drive_booked_by),
+        bookedDate: normalizeValue(p.vtd_date_and_time),       // "YYYY-MM-DD HHmm_HHmm" or "DD/MM/YYYY ..."
         testDriveStatus: normalizeValue(p.test_drive_status),
         bookingConfirmDate: normalizeValue(p.booking_confirm_date),
         vehicleState: normalizeValue(p.car_location_at_time_of_sale),
@@ -124,146 +153,193 @@ async function fetchVTDDeals() {
   return deals
 }
 
-function isTDConducted(deal) {
-  const s = normalizeKey(deal.testDriveStatus)
-  return s === 'TEST DRIVE DONE' || s === 'COMPLETED' || Boolean(deal.checkInWalkInDate) || Boolean(deal.testDriveCompletedDate)
+// ── Date helpers ─────────────────────────────────────────────────────────────
+
+// Returns "YYYY-MM-DD" from whatever format the property stores
+function toISODate(raw) {
+  if (!raw) return null
+
+  // Epoch ms (TD uses this)
+  if (/^\d{10,}$/.test(raw)) {
+    return new Date(Number(raw)).toISOString().slice(0, 10)
+  }
+
+  // "YYYY-MM-DD ..." or "YYYY-MM-DD"
+  if (/^\d{4}-\d{2}-\d{2}/.test(raw)) {
+    return raw.slice(0, 10)
+  }
+
+  // "DD/MM/YYYY ..."
+  if (/^\d{2}\/\d{2}\/\d{4}/.test(raw)) {
+    const [dd, mm, yyyy] = raw.slice(0, 10).split('/')
+    return `${yyyy}-${mm}-${dd}`
+  }
+
+  return null
 }
 
-function isVTDBooked(deal) {
-  const s = normalizeKey(deal.vtdStatus)
-  return s === 'BOOKED' || s === 'COMPLETED'
+function getWeekLabel(dateStr) {
+  const d = new Date(dateStr + 'T00:00:00Z')
+  // ISO week: Monday-based
+  const day = d.getUTCDay() || 7
+  const mon = new Date(d)
+  mon.setUTCDate(d.getUTCDate() - day + 1)
+  const sun = new Date(mon)
+  sun.setUTCDate(mon.getUTCDate() + 6)
+
+  const monLabel = mon.toLocaleDateString('en-AU', { day: 'numeric', month: 'short', timeZone: 'UTC' })
+  const sunLabel = sun.toLocaleDateString('en-AU', { day: 'numeric', month: 'short', timeZone: 'UTC' })
+
+  // ISO week number
+  const jan4 = new Date(Date.UTC(mon.getUTCFullYear(), 0, 4))
+  const weekNo = Math.ceil(((mon - jan4) / 86400000 + jan4.getUTCDay() + 1) / 7)
+
+  return {
+    dateKey: mon.toISOString().slice(0, 10),
+    label: `W${weekNo} · ${monLabel}–${sunLabel}`,
+  }
 }
 
-function isVTDConducted(deal) {
-  const vtd = normalizeKey(deal.vtdStatus)
-  const td = normalizeKey(deal.testDriveStatus)
-  return vtd === 'COMPLETED' || td === 'TEST DRIVE DONE' || td === 'COMPLETED' || td === 'CHECKED-IN'
+function getBucket(isoDate, granularity) {
+  if (granularity === 'daily') {
+    const d = new Date(isoDate + 'T00:00:00Z')
+    const label = d.toLocaleDateString('en-AU', { day: 'numeric', month: 'short', timeZone: 'UTC' })
+    return { dateKey: isoDate, label }
+  }
+  if (granularity === 'weekly') {
+    return getWeekLabel(isoDate)
+  }
+  // monthly
+  const [yyyy, mm] = isoDate.split('-')
+  const d = new Date(`${yyyy}-${mm}-01T00:00:00Z`)
+  const label = d.toLocaleDateString('en-AU', { month: 'long', year: 'numeric', timeZone: 'UTC' })
+  return { dateKey: `${yyyy}-${mm}-01`, label }
+}
+
+// ── Deal logic helpers ────────────────────────────────────────────────────────
+
+function isTDConducted(deal, contact) {
+  if (COMPLETED_TD_STATUSES.has(normalizeKey(deal.testDriveStatus))) return true
+  if (deal.walkInDate) return true
+  if (deal.completedDate) return true
+  if (contact?.walkInDate) return true
+  return false
+}
+
+function isVTDConducted(deal, contact) {
+  if (VTD_CONDUCTED_STATUSES.has(normalizeKey(deal.vtdStatus))) return true
+  if (COMPLETED_TD_STATUSES.has(normalizeKey(deal.testDriveStatus))) return true
+  if (normalizeKey(deal.testDriveStatus) === 'CHECKED-IN') return true
+  if (contact?.walkInDate) return true
+  return false
 }
 
 function isAgentBookedBy(bookedBy) {
-  const v = normalizeValue(bookedBy)
-  return v !== '' && normalizeKey(v) !== 'CUSTOMER' && v.includes('@')
+  const upper = normalizeKey(bookedBy)
+  return Boolean(bookedBy) && !CUSTOMER_VALUES.has(upper)
 }
 
-function bucketKey(dateStr, granularity) {
-  if (!dateStr || dateStr < '2026-04-01') return null
-  const d = new Date(dateStr + 'T00:00:00Z')
-  if (isNaN(d)) return null
-  if (granularity === 'daily') return dateStr
-  if (granularity === 'weekly') {
-    const day = d.getUTCDay() || 7
-    const monday = new Date(d)
-    monday.setUTCDate(d.getUTCDate() - day + 1)
-    return monday.toISOString().slice(0, 10)
-  }
-  return dateStr.slice(0, 7)
+// ── Filter matching ───────────────────────────────────────────────────────────
+
+function matchesDateRange(isoDate, startDate, endDate) {
+  if (!startDate && !endDate) return true
+  if (!isoDate) return false
+  if (startDate && isoDate < startDate) return false
+  if (endDate && isoDate > endDate) return false
+  return true
 }
 
-function bucketLabel(key, granularity) {
-  if (!key) return '?'
-  if (granularity === 'daily') {
-    const d = new Date(key + 'T00:00:00Z')
-    return d.toLocaleDateString('en-AU', { day: 'numeric', month: 'short', timeZone: 'UTC' })
-  }
-  if (granularity === 'weekly') {
-    const monday = new Date(key + 'T00:00:00Z')
-    const sunday = new Date(monday)
-    sunday.setUTCDate(monday.getUTCDate() + 6)
-    const wStart = monday.toLocaleDateString('en-AU', { day: 'numeric', month: 'short', timeZone: 'UTC' })
-    const wEnd = sunday.toLocaleDateString('en-AU', { day: 'numeric', month: 'short', timeZone: 'UTC' })
-    const jan4 = new Date(Date.UTC(monday.getUTCFullYear(), 0, 4))
-    const weekNum = Math.ceil(((monday - jan4) / 86400000 + jan4.getUTCDay() + 1) / 7)
-    return `W${weekNum} · ${wStart}–${wEnd}`
-  }
-  const [year, month] = key.split('-')
-  return new Date(Date.UTC(Number(year), Number(month) - 1, 1))
-    .toLocaleDateString('en-AU', { month: 'long', year: 'numeric', timeZone: 'UTC' })
-}
-
-function matchesFilters(deal, email, filters) {
+function matchesDealFilters(deal, isoDate, filters) {
   if (isExcludedOrderId(deal.orderId)) return false
-  if (email && isExcludedEmail(email)) return false
+  if (!matchesDateRange(isoDate, filters.startDate, filters.endDate)) return false
   if (filters.bookedBy !== 'all') {
     const agent = isAgentBookedBy(deal.bookedBy)
     if (filters.bookedBy === 'agent' && !agent) return false
     if (filters.bookedBy === 'customer' && agent) return false
   }
-  if (filters.startDate && deal.anchorDate && deal.anchorDate < filters.startDate) return false
-  if (filters.endDate && deal.anchorDate && deal.anchorDate > filters.endDate) return false
   if (filters.vehicleState !== 'all' && deal.vehicleState !== filters.vehicleState) return false
   if (filters.userState !== 'all' && deal.userState !== filters.userState) return false
   if (filters.interstate !== 'all') {
-    const norm = normalizeKey(deal.interstate)
-    if (filters.interstate === 'yes' && norm !== 'YES') return false
-    if (filters.interstate === 'no' && norm !== 'NO') return false
+    const upper = normalizeKey(deal.interstate)
+    if (filters.interstate === 'yes' && upper !== 'YES') return false
+    if (filters.interstate === 'no' && upper !== 'NO') return false
   }
   return true
 }
 
-export async function getTDComparisonData(params) {
-  const granularity = params.get('granularity') || 'weekly'
-  const filters = {
-    bookedBy: params.get('bookedBy') || 'all',
-    startDate: params.get('startDate') || '2026-04-01',
-    endDate: params.get('endDate') || '',
-    vehicleState: params.get('vehicleState') || 'all',
-    userState: params.get('userState') || 'all',
-    interstate: params.get('interstate') || 'all',
+// ── Bucket aggregation ────────────────────────────────────────────────────────
+
+function makeBucketMap() {
+  return new Map() // dateKey → { label, dateKey, td: {...}, vtd: {...} }
+}
+
+function ensureBucket(map, dateKey, label) {
+  if (!map.has(dateKey)) {
+    map.set(dateKey, {
+      dateKey,
+      label,
+      td:  { booked: 0, conducted: 0, bc: 0 },
+      vtd: { booked: 0, conducted: 0, bc: 0 },
+    })
   }
+  return map.get(dateKey)
+}
 
+// ── Main export ───────────────────────────────────────────────────────────────
+
+export async function getTDComparisonData(params) {
+  const filters = parseFilters(params)
+
+  // Fetch both in parallel
   const [tdDeals, vtdDeals] = await Promise.all([fetchTDDeals(), fetchVTDDeals()])
-  const allDeals = [...tdDeals, ...vtdDeals]
 
-  const associationMap = await readDealToContactAssociations(allDeals.map((d) => d.id))
+  // Fetch contact associations + emails for exclusion / walk-in date
+  const allIds = [...new Set([...tdDeals.map((d) => d.id), ...vtdDeals.map((d) => d.id)])]
+  const associationMap = await readDealToContactAssociations(allIds)
   const uniqueContactIds = [...new Set([...associationMap.values()].flat())]
   const contactMap = await readContacts(uniqueContactIds)
 
-  function getDealEmail(dealId) {
-    const contactIds = associationMap.get(dealId) ?? []
-    for (const cid of contactIds) {
-      const c = contactMap.get(cid)
-      if (c?.email) return c.email
-    }
-    return ''
-  }
-
-  const buckets = new Map()
-  function getOrCreate(key) {
-    if (!buckets.has(key)) {
-      buckets.set(key, {
-        dateKey: key,
-        label: bucketLabel(key, granularity),
-        td: { booked: 0, conducted: 0, bc: 0 },
-        vtd: { booked: 0, conducted: 0, bc: 0 },
-      })
-    }
-    return buckets.get(key)
-  }
-
-  const totals = { td: { booked: 0, conducted: 0, bc: 0 }, vtd: { booked: 0, conducted: 0, bc: 0 } }
+  const bucketMap = makeBucketMap()
   const tableRows = []
 
+  const totals = {
+    td:  { booked: 0, conducted: 0, bc: 0 },
+    vtd: { booked: 0, conducted: 0, bc: 0 },
+  }
+
+  // ── Process TD deals ──────────────────────────────────────────────────────
   for (const deal of tdDeals) {
-    const email = getDealEmail(deal.id)
-    if (!matchesFilters(deal, email, filters)) continue
-    const bk = bucketKey(deal.anchorDate, granularity)
-    if (!bk) continue
+    const isoDate = toISODate(deal.bookedDate)
+    if (!matchesDealFilters(deal, isoDate, filters)) continue
 
-    const bucket = getOrCreate(bk)
-    const conducted = isTDConducted(deal)
-    const bc = Boolean(deal.bookingConfirmDate)
+    // Contact email check
+    const contactIds = associationMap.get(deal.id) ?? []
+    const contact = contactIds.map((id) => contactMap.get(id)).find((c) => c?.email && !isExcludedEmail(c.email))
+    if (contactIds.length > 0 && !contact) continue  // has contacts but all excluded
 
-    bucket.td.booked++; totals.td.booked++
-    if (conducted) { bucket.td.conducted++; totals.td.conducted++ }
-    if (bc) { bucket.td.bc++; totals.td.bc++ }
+    const conducted = isTDConducted(deal, contact)
+    const hasBc = Boolean(deal.bookingConfirmDate)
+
+    // Bucket
+    if (isoDate) {
+      const { dateKey, label } = getBucket(isoDate, filters.granularity)
+      const bucket = ensureBucket(bucketMap, dateKey, label)
+      bucket.td.booked++
+      if (conducted) bucket.td.conducted++
+      if (hasBc) bucket.td.bc++
+    }
+
+    totals.td.booked++
+    if (conducted) totals.td.conducted++
+    if (hasBc) totals.td.bc++
 
     tableRows.push({
       dealId: deal.orderId || deal.dealName || deal.id,
       type: 'TD',
-      contactEmail: email,
-      bookedDate: deal.anchorDate,
+      contactEmail: contact?.email || '',
+      bookedDate: isoDate || '',
       conducted,
-      bcDate: deal.bookingConfirmDate ? (() => { const n = Number(deal.bookingConfirmDate); return isNaN(n) ? deal.bookingConfirmDate.slice(0,10) : new Date(n).toISOString().slice(0,10) })() : '',
+      bcDate: isoDate && hasBc ? new Date(Number(deal.bookingConfirmDate)).toISOString().slice(0, 10) : '',
       vehicleState: deal.vehicleState || 'Unknown',
       userState: deal.userState || 'Unknown',
       interstate: deal.interstate || 'Unknown',
@@ -271,28 +347,40 @@ export async function getTDComparisonData(params) {
     })
   }
 
+  // ── Process VTD deals ─────────────────────────────────────────────────────
   for (const deal of vtdDeals) {
-    const email = getDealEmail(deal.id)
-    if (!matchesFilters(deal, email, filters)) continue
-    const bk = bucketKey(deal.anchorDate, granularity)
-    if (!bk) continue
+    const vtdUpper = normalizeKey(deal.vtdStatus)
+    if (!VTD_BOOKED_STATUSES.has(vtdUpper)) continue  // skip cancelled etc
 
-    const bucket = getOrCreate(bk)
-    const booked = isVTDBooked(deal)
-    const conducted = isVTDConducted(deal)
-    const bc = Boolean(deal.bookingConfirmDate)
+    const isoDate = toISODate(deal.bookedDate)
+    if (!matchesDealFilters(deal, isoDate, filters)) continue
 
-    if (booked) { bucket.vtd.booked++; totals.vtd.booked++ }
-    if (conducted) { bucket.vtd.conducted++; totals.vtd.conducted++ }
-    if (bc) { bucket.vtd.bc++; totals.vtd.bc++ }
+    const contactIds = associationMap.get(deal.id) ?? []
+    const contact = contactIds.map((id) => contactMap.get(id)).find((c) => c?.email && !isExcludedEmail(c.email))
+    if (contactIds.length > 0 && !contact) continue
+
+    const conducted = isVTDConducted(deal, contact)
+    const hasBc = Boolean(deal.bookingConfirmDate)
+
+    if (isoDate) {
+      const { dateKey, label } = getBucket(isoDate, filters.granularity)
+      const bucket = ensureBucket(bucketMap, dateKey, label)
+      bucket.vtd.booked++
+      if (conducted) bucket.vtd.conducted++
+      if (hasBc) bucket.vtd.bc++
+    }
+
+    totals.vtd.booked++
+    if (conducted) totals.vtd.conducted++
+    if (hasBc) totals.vtd.bc++
 
     tableRows.push({
       dealId: deal.orderId || deal.dealName || deal.id,
       type: 'VTD',
-      contactEmail: email,
-      bookedDate: deal.anchorDate,
+      contactEmail: contact?.email || '',
+      bookedDate: isoDate || '',
       conducted,
-      bcDate: deal.bookingConfirmDate ? (() => { const n = Number(deal.bookingConfirmDate); return isNaN(n) ? deal.bookingConfirmDate.slice(0,10) : new Date(n).toISOString().slice(0,10) })() : '',
+      bcDate: hasBc ? new Date(Number(deal.bookingConfirmDate)).toISOString().slice(0, 10) : '',
       vehicleState: deal.vehicleState || 'Unknown',
       userState: deal.userState || 'Unknown',
       interstate: deal.interstate || 'Unknown',
@@ -300,12 +388,18 @@ export async function getTDComparisonData(params) {
     })
   }
 
+  // Sort buckets chronologically
+  const buckets = [...bucketMap.values()].sort((a, b) => a.dateKey.localeCompare(b.dateKey))
+
+  // Sort table by booked date desc
+  tableRows.sort((a, b) => b.bookedDate.localeCompare(a.bookedDate))
+
   return {
     generatedAt: new Date().toISOString(),
-    granularity,
+    granularity: filters.granularity,
     filters,
-    buckets: [...buckets.values()].sort((a, b) => a.dateKey.localeCompare(b.dateKey)),
+    buckets,
     totals,
-    table: tableRows.sort((a, b) => b.bookedDate.localeCompare(a.bookedDate)),
+    table: tableRows,
   }
 }
