@@ -1,3 +1,5 @@
+import { hubspotFetch, normalizeValue, normalizeKey, isExcludedEmail, isExcludedOrderId, readDealToContactAssociations, readContacts } from './shared.js'
+
 const DEFAULT_CONFIG = {
   deal: {
     orderId: 'order_id',
@@ -26,83 +28,19 @@ const DEFAULT_CONFIG = {
   },
 }
 
-const HUBSPOT_BASE_URL = 'https://api.hubapi.com'
-const EXCLUDED_EMAIL_PATTERNS = ['cars24', 'yopmail']
-const EXCLUDED_EMAILS = new Set(['ss@mm.com'])
-const EXCLUDED_ORDER_IDS = new Set(['WL46WF'])
-const RETRYABLE_STATUS_CODES = new Set([429, 502, 503, 504])
-const MAX_RETRIES = 4
-
-function normalizeValue(value) {
-  return (value ?? '').trim()
-}
-
-function normalizeKey(value) {
-  return normalizeValue(value).toUpperCase()
-}
-
 function mergeConfig() {
   const raw = process.env.HUBSPOT_DASHBOARD_CONFIG
-
-  if (!raw) {
-    return DEFAULT_CONFIG
-  }
-
+  if (!raw) return DEFAULT_CONFIG
   try {
     const parsed = JSON.parse(raw)
-
     return {
       deal: { ...DEFAULT_CONFIG.deal, ...(parsed.deal ?? {}) },
       contact: { ...DEFAULT_CONFIG.contact, ...(parsed.contact ?? {}) },
-      values: {
-        ...DEFAULT_CONFIG.values,
-        ...(parsed.values ?? {}),
-      },
+      values: { ...DEFAULT_CONFIG.values, ...(parsed.values ?? {}) },
     }
   } catch {
     return DEFAULT_CONFIG
   }
-}
-
-async function hubspotFetch(path, init) {
-  const token = process.env.HUBSPOT_TOKEN
-
-  if (!token) {
-    throw new Error('Missing HUBSPOT_TOKEN environment variable.')
-  }
-
-  for (let attempt = 0; attempt <= MAX_RETRIES; attempt += 1) {
-    const response = await fetch(`${HUBSPOT_BASE_URL}${path}`, {
-      ...init,
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
-        ...(init?.headers ?? {}),
-      },
-    })
-
-    if (response.ok) {
-      return response.json()
-    }
-
-    const text = await response.text()
-    const shouldRetry = RETRYABLE_STATUS_CODES.has(response.status) && attempt < MAX_RETRIES
-
-    if (shouldRetry) {
-      const retryAfter = Number(response.headers.get('retry-after') ?? '0')
-      const delayMs = retryAfter > 0 ? retryAfter * 1000 : 750 * 2 ** attempt
-      await new Promise((resolve) => setTimeout(resolve, delayMs))
-      continue
-    }
-
-    if (response.status >= 500) {
-      throw new Error(`HubSpot is temporarily unavailable (${response.status}). Please try again in a minute.`)
-    }
-
-    throw new Error(`HubSpot API error (${response.status}): ${text}`)
-  }
-
-  throw new Error('HubSpot is temporarily unavailable. Please try again in a minute.')
 }
 
 async function searchDeals(config) {
@@ -112,17 +50,13 @@ async function searchDeals(config) {
 
   do {
     const payload = {
-      filterGroups: [
-        {
-          filters: [
-            {
-              propertyName: config.deal.vtdStatus,
-              operator: 'IN',
-              values: config.values.vtdStatuses,
-            },
-          ],
-        },
-      ],
+      filterGroups: [{
+        filters: [{
+          propertyName: config.deal.vtdStatus,
+          operator: 'IN',
+          values: config.values.vtdStatuses,
+        }],
+      }],
       properties,
       limit: 100,
       after,
@@ -155,56 +89,6 @@ async function searchDeals(config) {
   return deals
 }
 
-async function readDealToContactAssociations(dealIds) {
-  const map = new Map()
-
-  for (let index = 0; index < dealIds.length; index += 100) {
-    const inputs = dealIds.slice(index, index + 100).map((id) => ({ id }))
-    const data = await hubspotFetch('/crm/v4/associations/deals/contacts/batch/read', {
-      method: 'POST',
-      body: JSON.stringify({ inputs }),
-    })
-
-    for (const item of data.results) {
-      map.set(
-        item.from.id,
-        item.to.map((entry) => String(entry.toObjectId)),
-      )
-    }
-  }
-
-  return map
-}
-
-async function readContacts(contactIds, config) {
-  const map = new Map()
-  const properties = Object.values(config.contact)
-
-  for (let index = 0; index < contactIds.length; index += 100) {
-    const inputs = contactIds.slice(index, index + 100).map((id) => ({
-      id,
-      properties,
-    }))
-
-    const data = await hubspotFetch('/crm/v3/objects/contacts/batch/read', {
-      method: 'POST',
-      body: JSON.stringify({ inputs, properties }),
-    })
-
-    for (const row of data.results) {
-      map.set(row.id, {
-        id: row.id,
-        email: normalizeValue(row.properties[config.contact.email]),
-        walkInDate: normalizeValue(row.properties[config.contact.walkInDate]),
-        vehicleState: normalizeValue(row.properties[config.contact.vehicleState]),
-        fallbackUserState: normalizeValue(row.properties[config.contact.fallbackUserState]),
-      })
-    }
-  }
-
-  return map
-}
-
 function parseFilters(params) {
   return {
     bookedBy: params.get('bookedBy') || 'all',
@@ -217,15 +101,6 @@ function parseFilters(params) {
   }
 }
 
-function isExcludedEmail(email) {
-  const lower = email.toLowerCase()
-  return EXCLUDED_EMAILS.has(lower) || EXCLUDED_EMAIL_PATTERNS.some((pattern) => lower.includes(pattern))
-}
-
-function isExcludedOrderId(orderId) {
-  return EXCLUDED_ORDER_IDS.has(normalizeValue(orderId))
-}
-
 function isCustomerBookedBy(bookedBy, config) {
   return config.values.customerBookedByValues.includes(normalizeKey(bookedBy))
 }
@@ -236,57 +111,28 @@ function isCompletedTdStatus(status, config) {
 
 function matchesInterstate(value, filters, config) {
   const normalized = normalizeKey(value)
-
-  if (filters.interstate === 'all') {
-    return true
-  }
-
-  if (filters.interstate === 'yes') {
-    return config.values.interstateYes.includes(normalized)
-  }
-
+  if (filters.interstate === 'all') return true
+  if (filters.interstate === 'yes') return config.values.interstateYes.includes(normalized)
   return config.values.interstateNo.includes(normalized) || normalized === ''
 }
 
 function matchesDateRange(value, startDate, endDate) {
-  if (!startDate && !endDate) {
-    return true
-  }
-
-  if (!value) {
-    return false
-  }
-
+  if (!startDate && !endDate) return true
+  if (!value) return false
   const isoDate = value.slice(0, 10)
-
-  if (startDate && isoDate < startDate) {
-    return false
-  }
-
-  if (endDate && isoDate > endDate) {
-    return false
-  }
-
+  if (startDate && isoDate < startDate) return false
+  if (endDate && isoDate > endDate) return false
   return true
 }
 
 function inferInterstate(userState, vehicleState) {
-  if (!userState || !vehicleState || userState === 'Unknown' || vehicleState === 'Unknown') {
-    return 'Unknown'
-  }
-
+  if (!userState || !vehicleState || userState === 'Unknown' || vehicleState === 'Unknown') return 'Unknown'
   return userState === vehicleState ? 'No' : 'Yes'
 }
 
 function matchesInferredInterstate(value, filters) {
-  if (filters.inferredInterstate === 'all') {
-    return true
-  }
-
-  if (filters.inferredInterstate === 'yes') {
-    return value === 'Yes'
-  }
-
+  if (filters.inferredInterstate === 'all') return true
+  if (filters.inferredInterstate === 'yes') return value === 'Yes'
   return value === 'No'
 }
 
@@ -294,51 +140,27 @@ function aggregateContacts(deals, associationMap, contactMap, filters, config) {
   const aggregates = new Map()
 
   for (const deal of deals) {
-    if (isExcludedOrderId(deal.orderId)) {
-      continue
-    }
-
-    if (!matchesDateRange(deal.filterDate, filters.startDate, filters.endDate)) {
-      continue
-    }
-
+    if (isExcludedOrderId(deal.orderId)) continue
+    if (!matchesDateRange(deal.filterDate, filters.startDate, filters.endDate)) continue
     if (filters.bookedBy !== 'all') {
       const isCustomer = isCustomerBookedBy(deal.bookedBy, config)
-      if (filters.bookedBy === 'customer' && !isCustomer) {
-        continue
-      }
-      if (filters.bookedBy === 'agent' && isCustomer) {
-        continue
-      }
+      if (filters.bookedBy === 'customer' && !isCustomer) continue
+      if (filters.bookedBy === 'agent' && isCustomer) continue
     }
-
-    if (!matchesInterstate(deal.interstate, filters, config)) {
-      continue
-    }
+    if (!matchesInterstate(deal.interstate, filters, config)) continue
 
     const contactIds = associationMap.get(deal.id) ?? []
-
     for (const contactId of contactIds) {
       const contact = contactMap.get(contactId)
-      if (!contact || !contact.email || isExcludedEmail(contact.email)) {
-        continue
-      }
+      if (!contact || !contact.email || isExcludedEmail(contact.email)) continue
 
       const vehicleState = deal.vehicleState || 'Unknown'
       const userState = deal.userState || contact.fallbackUserState || 'Unknown'
       const inferredInterstate = inferInterstate(userState, vehicleState)
 
-      if (filters.vehicleState !== 'all' && vehicleState !== filters.vehicleState) {
-        continue
-      }
-
-      if (filters.userState !== 'all' && userState !== filters.userState) {
-        continue
-      }
-
-      if (!matchesInferredInterstate(inferredInterstate, filters)) {
-        continue
-      }
+      if (filters.vehicleState !== 'all' && vehicleState !== filters.vehicleState) continue
+      if (filters.userState !== 'all' && userState !== filters.userState) continue
+      if (!matchesInferredInterstate(inferredInterstate, filters)) continue
 
       const existing = aggregates.get(contactId) ?? {
         id: contactId,
@@ -366,81 +188,52 @@ function aggregateContacts(deals, associationMap, contactMap, filters, config) {
 }
 
 function toOptions(values) {
-  return values
-    .filter(Boolean)
-    .sort((left, right) => left.localeCompare(right))
-    .map((value) => ({ label: value, value }))
+  return values.filter(Boolean).sort((a, b) => a.localeCompare(b)).map((value) => ({ label: value, value }))
 }
 
 function groupCounts(items, getKey) {
   const counts = new Map()
-
   for (const item of items) {
     const key = getKey(item) || 'Unknown'
     counts.set(key, (counts.get(key) ?? 0) + 1)
   }
-
   return [...counts.entries()]
     .map(([label, value]) => ({ label, value }))
-    .sort((left, right) => right.value - left.value || left.label.localeCompare(right.label))
+    .sort((a, b) => b.value - a.value || a.label.localeCompare(b.label))
 }
 
 export async function getDashboardData(params) {
   const filters = parseFilters(params)
   const config = mergeConfig()
   const deals = await searchDeals(config)
-  const associationMap = await readDealToContactAssociations(deals.map((deal) => deal.id))
+  const associationMap = await readDealToContactAssociations(deals.map((d) => d.id))
   const uniqueContactIds = [...new Set([...associationMap.values()].flat())]
-  const contactMap = await readContacts(uniqueContactIds, config)
+  const contactMap = await readContacts(uniqueContactIds)
   const contacts = aggregateContacts(deals, associationMap, contactMap, filters, config)
   const table = []
 
   for (const deal of deals) {
-    if (isExcludedOrderId(deal.orderId)) {
-      continue
-    }
-
-    if (!matchesDateRange(deal.filterDate, filters.startDate, filters.endDate)) {
-      continue
-    }
-
+    if (isExcludedOrderId(deal.orderId)) continue
+    if (!matchesDateRange(deal.filterDate, filters.startDate, filters.endDate)) continue
     if (filters.bookedBy !== 'all') {
       const isCustomer = isCustomerBookedBy(deal.bookedBy, config)
-      if (filters.bookedBy === 'customer' && !isCustomer) {
-        continue
-      }
-      if (filters.bookedBy === 'agent' && isCustomer) {
-        continue
-      }
+      if (filters.bookedBy === 'customer' && !isCustomer) continue
+      if (filters.bookedBy === 'agent' && isCustomer) continue
     }
-
-    if (!matchesInterstate(deal.interstate, filters, config)) {
-      continue
-    }
+    if (!matchesInterstate(deal.interstate, filters, config)) continue
 
     const contactIds = associationMap.get(deal.id) ?? []
-
     for (const contactId of contactIds) {
       const contact = contactMap.get(contactId)
-      if (!contact || !contact.email || isExcludedEmail(contact.email)) {
-        continue
-      }
+      if (!contact || !contact.email || isExcludedEmail(contact.email)) continue
 
       const vehicleState = deal.vehicleState || 'Unknown'
       const userState = deal.userState || contact.fallbackUserState || 'Unknown'
       const inferredInterstate = inferInterstate(userState, vehicleState)
 
-      if (filters.vehicleState !== 'all' && vehicleState !== filters.vehicleState) {
-        continue
-      }
-
-      if (filters.userState !== 'all' && userState !== filters.userState) {
-        continue
-      }
-
-      if (!matchesInferredInterstate(inferredInterstate, filters)) {
-        continue
-      }
+      if (filters.vehicleState !== 'all' && vehicleState !== filters.vehicleState) continue
+      if (filters.userState !== 'all' && userState !== filters.userState) continue
+      if (!matchesInferredInterstate(inferredInterstate, filters)) continue
 
       table.push({
         dealId: deal.orderId || deal.id,
@@ -459,8 +252,8 @@ export async function getDashboardData(params) {
     }
   }
 
-  const completedCount = contacts.filter((contact) => contact.qualifiesCompleted).length
-  const bcCount = contacts.filter((contact) => contact.qualifiesBc).length
+  const completedCount = contacts.filter((c) => c.qualifiesCompleted).length
+  const bcCount = contacts.filter((c) => c.qualifiesBc).length
   const cancelledReturnedCount = table.filter((row) => Boolean(row.cancelReturnDate)).length
 
   return {
@@ -469,15 +262,15 @@ export async function getDashboardData(params) {
     totalContacts: contacts.length,
     filters,
     summary: {
-      booked: contacts.filter((contact) => contact.qualifiesBooked).length,
+      booked: contacts.filter((c) => c.qualifiesBooked).length,
       completed: completedCount,
       bcs: bcCount,
       cancelledReturned: cancelledReturnedCount,
       conversionRate: completedCount ? Number(((bcCount / completedCount) * 100).toFixed(1)) : 0,
     },
     options: {
-      vehicleStates: toOptions([...new Set(contacts.map((contact) => contact.vehicleState))]),
-      userStates: toOptions([...new Set(contacts.map((contact) => contact.userState))]),
+      vehicleStates: toOptions([...new Set(contacts.map((c) => c.vehicleState))]),
+      userStates: toOptions([...new Set(contacts.map((c) => c.userState))]),
     },
     breakdowns: {
       bookedBy: groupCounts(table, (row) => (isCustomerBookedBy(row.bookedBy, config) ? 'Customer' : 'Agent')),
