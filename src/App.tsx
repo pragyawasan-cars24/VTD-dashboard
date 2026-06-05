@@ -13,7 +13,7 @@ const DEFAULT_FILTERS: DashboardFilters = {
 const DEFAULT_TD_FILTERS: TDComparisonFilters = {
   granularity: 'weekly', bookedBy: 'all',
   startDate: '2026-04-01', endDate: '',
-  vehicleState: 'all', userState: 'all', inferredInterstate: 'all',
+  vehicleState: 'all', userState: 'all', interstate: 'all', inferredInterstate: 'all',
 }
 
 const PAGE_SIZE = 25
@@ -234,6 +234,11 @@ function ComparisonTab() {
         <select className="filter-select" value={pendingFilters.userState} onChange={(e) => setPendingFilters((p) => ({ ...p, userState: e.target.value }))}>
           <option value="all">All — User State</option>
           {['Victoria', 'New South Wales', 'Queensland', 'South Australia', 'Western Australia', 'Australian Capital Territory', 'Tasmania', 'Northern Territory'].map((s) => <option key={s} value={s}>{s}</option>)}
+        </select>
+        <select className="filter-select" value={pendingFilters.interstate} onChange={(e) => setPendingFilters((p) => ({ ...p, interstate: e.target.value as TDComparisonFilters['interstate'] }))}>
+          <option value="all">All — Interstate</option>
+          <option value="yes">Interstate: Yes</option>
+          <option value="no">Interstate: No</option>
         </select>
         <select className="filter-select" value={pendingFilters.inferredInterstate} onChange={(e) => setPendingFilters((p) => ({ ...p, inferredInterstate: e.target.value as TDComparisonFilters['inferredInterstate'] }))}>
           <option value="all">All — Inferred Interstate</option>
