@@ -232,3 +232,4 @@ At the end of this chat:
 - cancelled/returned metric was present at the top
 - public URL alias had been repointed to the latest deployment
 
+<!-- rebuild trigger: 2026-06-05T11:51:36.352172 -->
