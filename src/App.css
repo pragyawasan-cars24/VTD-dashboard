@@ -424,3 +424,95 @@ th {
     width: 100%;
   }
 }
+
+
+/* ── Tab switcher ────────────────────────────────────────────────────────── */
+.tab-switcher {
+  display: flex;
+  border: 1px solid #e7e5e4;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #f5f5f4;
+}
+
+.tab-btn {
+  padding: 6px 18px;
+  font-size: 13px;
+  font-weight: 500;
+  border: none;
+  background: transparent;
+  color: #78716c;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.tab-btn.active {
+  background: #dc2626;
+  color: white;
+}
+
+/* ── Granularity toggle ──────────────────────────────────────────────────── */
+.granularity-toggle {
+  display: flex;
+  border: 1px solid #d6d3d1;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.gran-btn {
+  padding: 5px 12px;
+  font-size: 12px;
+  font-weight: 500;
+  border: none;
+  background: white;
+  color: #57534e;
+  cursor: pointer;
+  border-right: 1px solid #d6d3d1;
+}
+
+.gran-btn:last-child { border-right: none; }
+.gran-btn.active { background: #1c1917; color: white; }
+
+/* ── 6-column metrics row ────────────────────────────────────────────────── */
+.metrics-row-6 {
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+}
+
+/* ── Type badge ──────────────────────────────────────────────────────────── */
+.type-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 7px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.type-td {
+  background: #f0f9ff;
+  color: #0369a1;
+}
+
+.type-vtd {
+  background: #fef2f2;
+  color: #dc2626;
+}
+
+/* ── Slate metric card ───────────────────────────────────────────────────── */
+.c-slate.metric-icon,
+.c-slate.metric-value {
+  color: #475569;
+  background: #f1f5f9;
+}
+
+@media (max-width: 1400px) {
+  .metrics-row-6 {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 900px) {
+  .metrics-row-6 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
