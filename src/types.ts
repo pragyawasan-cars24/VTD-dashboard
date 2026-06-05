@@ -63,6 +63,7 @@ export type TDComparisonFilters = {
   vehicleState: string
   userState: string
   interstate: InterstateFilter
+  inferredInterstate: InterstateFilter
 }
 
 export type TDBucket = {
