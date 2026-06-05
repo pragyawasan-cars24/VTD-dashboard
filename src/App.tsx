@@ -25,9 +25,10 @@ function getWeekKey(isoDate: string): { dateKey: string; label: string } {
   const mon = new Date(d); mon.setUTCDate(d.getUTCDate() - day + 1)
   const sun = new Date(mon); sun.setUTCDate(mon.getUTCDate() + 6)
   const fmt = (dt: Date) => dt.toLocaleDateString('en-AU', { day: 'numeric', month: 'short', timeZone: 'UTC' })
-  const jan4 = new Date(Date.UTC(mon.getUTCFullYear(), 0, 4))
-  const weekNo = Math.ceil(((mon.getTime() - jan4.getTime()) / 86400000 + jan4.getUTCDay() + 1) / 7)
-  return { dateKey: mon.toISOString().slice(0, 10), label: `W${weekNo} · ${fmt(mon)}–${fmt(sun)}` }
+  return {
+    dateKey: mon.toISOString().slice(0, 10),
+    label: `${fmt(mon)} – ${fmt(sun)}`,   // e.g. "14 Apr – 20 Apr"
+  }
 }
 
 function aggregateBuckets(daily: TDBucket[], granularity: Granularity): (TDBucket & { label: string })[] {
@@ -43,7 +44,7 @@ function aggregateBuckets(daily: TDBucket[], granularity: Granularity): (TDBucke
     } else {
       key = day.dateKey.slice(0, 7)
       const d = new Date(day.dateKey.slice(0, 7) + '-01T00:00:00Z')
-      label = d.toLocaleDateString('en-AU', { month: 'long', year: 'numeric', timeZone: 'UTC' })
+      label = d.toLocaleDateString('en-AU', { month: 'short', year: 'numeric', timeZone: 'UTC' })
     }
     if (!map.has(key)) map.set(key, { dateKey: key, label, td: { booked: 0, conducted: 0, bc: 0 }, vtd: { booked: 0, conducted: 0, bc: 0 } })
     const b = map.get(key)!
@@ -68,12 +69,12 @@ function MiniBarChart({ buckets, getTD, getVTD, tdColor, vtdColor, tdLabel, vtdL
 
   if (!buckets.length) return <div className="empty-state">No data.</div>
 
-  const H = 200
-  const MARGIN = { top: 12, right: 12, bottom: 52, left: 32 }
+  const H = 160
+  const MARGIN = { top: 10, right: 8, bottom: 48, left: 28 }
   const BAR_GAP = 2
-  const BAR_W = 8
+  const BAR_W = 7
   const PAIR_W = BAR_W * 2 + BAR_GAP
-  const BUCKET_GAP = 6
+  const BUCKET_GAP = 5
   const totalW = MARGIN.left + buckets.length * (PAIR_W + BUCKET_GAP) + MARGIN.right
   const chartH = H - MARGIN.top - MARGIN.bottom
   const maxVal = Math.max(1, ...buckets.flatMap((b) => [getTD(b), getVTD(b)]))
@@ -88,7 +89,7 @@ function MiniBarChart({ buckets, getTD, getVTD, tdColor, vtdColor, tdLabel, vtdL
           return (
             <g key={tick}>
               <line x1={MARGIN.left} x2={totalW - MARGIN.right} y1={cy} y2={cy} stroke="#f0f0ef" strokeWidth={1} />
-              <text x={MARGIN.left - 4} y={cy + 3} textAnchor="end" fontSize={8} fill="#a8a29e">{tick}</text>
+              <text x={MARGIN.left - 3} y={cy + 3} textAnchor="end" fontSize={7} fill="#a8a29e">{tick}</text>
             </g>
           )
         })}
@@ -103,9 +104,9 @@ function MiniBarChart({ buckets, getTD, getVTD, tdColor, vtdColor, tdLabel, vtdL
               <rect x={bx + BAR_W + BAR_GAP} y={MARGIN.top + scaleY(vtdVal)} width={BAR_W} height={Math.max(0, (vtdVal / maxVal) * chartH)} fill={vtdColor} rx={1}
                 onMouseEnter={(e) => { const r = svgRef.current?.getBoundingClientRect(); if (!r) return; setTooltip({ x: e.clientX - r.left, y: e.clientY - r.top - 8, lines: [`${vtdLabel}: ${vtdVal}`, bucket.label] }) }}
                 onMouseLeave={() => setTooltip(null)} />
-              <text x={bx + PAIR_W / 2} y={H - MARGIN.bottom + 12} textAnchor="middle" fontSize={8} fill="#78716c"
-                transform={`rotate(-40, ${bx + PAIR_W / 2}, ${H - MARGIN.bottom + 12})`}>
-                {bucket.label.split(' · ')[0]}
+              <text x={bx + PAIR_W / 2} y={H - MARGIN.bottom + 11} textAnchor="middle" fontSize={7} fill="#78716c"
+                transform={`rotate(-45, ${bx + PAIR_W / 2}, ${H - MARGIN.bottom + 11})`}>
+                {bucket.label.split(' – ')[0]}
               </text>
             </g>
           )
@@ -117,10 +118,10 @@ function MiniBarChart({ buckets, getTD, getVTD, tdColor, vtdColor, tdLabel, vtdL
           {tooltip.lines.map((l, i) => <div key={i}>{l}</div>)}
         </div>
       )}
-      <div style={{ display: 'flex', gap: 14, marginTop: 8, paddingLeft: 2 }}>
+      <div style={{ display: 'flex', gap: 12, marginTop: 6, paddingLeft: 2 }}>
         {[{ label: tdLabel, color: tdColor }, { label: vtdLabel, color: vtdColor }].map((s) => (
-          <div key={s.label} style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, color: '#57534e' }}>
-            <div style={{ width: 9, height: 9, borderRadius: 2, background: s.color, flexShrink: 0 }} />{s.label}
+          <div key={s.label} style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 10, color: '#57534e' }}>
+            <div style={{ width: 8, height: 8, borderRadius: 2, background: s.color, flexShrink: 0 }} />{s.label}
           </div>
         ))}
       </div>
@@ -128,145 +129,32 @@ function MiniBarChart({ buckets, getTD, getVTD, tdColor, vtdColor, tdLabel, vtdL
   )
 }
 
-// ── App ───────────────────────────────────────────────────────────────────────
-function App() {
-  const [activeTab, setActiveTab] = useState<'vtd' | 'comparison'>('vtd')
+// ── 3-chart row for one granularity ──────────────────────────────────────────
+function ChartRow({ title, buckets }: { title: string; buckets: ChartBucket[] }) {
   return (
-    <div className="dashboard-page">
-      <header className="header">
-        <div className="header-left">
-          <div className="logo-mark">C24</div>
-          <div>
-            <div className="header-title">VTD Dashboard</div>
-            <div className="header-sub">Virtual Test Drive Analytics</div>
+    <div style={{ marginBottom: 20 }}>
+      <div style={{ fontSize: 12, fontWeight: 600, color: '#57534e', marginBottom: 10, paddingLeft: 2, textTransform: 'uppercase', letterSpacing: '0.04em' }}>{title}</div>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
+        <div className="card">
+          <div className="card-header"><div><div className="card-title">Booked</div></div></div>
+          <div className="card-body" style={{ overflowX: 'auto' }}>
+            <MiniBarChart buckets={buckets} getTD={(b) => b.td.booked} getVTD={(b) => b.vtd.booked} tdColor="#64748b" vtdColor="#dc2626" tdLabel="TD" vtdLabel="VTD" />
           </div>
         </div>
-        <div className="header-right">
-          <div className="tab-switcher">
-            <button type="button" className={`tab-btn ${activeTab === 'vtd' ? 'active' : ''}`} onClick={() => setActiveTab('vtd')}>VTD</button>
-            <button type="button" className={`tab-btn ${activeTab === 'comparison' ? 'active' : ''}`} onClick={() => setActiveTab('comparison')}>TD vs VTD</button>
+        <div className="card">
+          <div className="card-header"><div><div className="card-title">Conducted</div></div></div>
+          <div className="card-body" style={{ overflowX: 'auto' }}>
+            <MiniBarChart buckets={buckets} getTD={(b) => b.td.conducted} getVTD={(b) => b.vtd.conducted} tdColor="#0ea5e9" vtdColor="#d97706" tdLabel="TD" vtdLabel="VTD" />
           </div>
         </div>
-      </header>
-      {activeTab === 'vtd' ? <VTDTab /> : <ComparisonTab />}
-    </div>
-  )
-}
-
-// ── Tab 1: VTD ────────────────────────────────────────────────────────────────
-function VTDTab() {
-  const [filters, setFilters] = useState<DashboardFilters>(DEFAULT_FILTERS)
-  const [pendingFilters, setPendingFilters] = useState<DashboardFilters>(DEFAULT_FILTERS)
-  const [data, setData] = useState<DashboardResponse | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState('')
-  const [refreshTick, setRefreshTick] = useState(0)
-  const [tableSearch, setTableSearch] = useState('')
-  const [page, setPage] = useState(1)
-
-  useEffect(() => {
-    const params = new URLSearchParams()
-    for (const [key, value] of Object.entries(filters)) {
-      if (value && value !== 'all') params.set(key, value)
-    }
-    let active = true
-    setLoading(true)
-    fetch(`/api/dashboard?${params.toString()}`, { cache: 'no-store' })
-      .then(async (r) => { if (!r.ok) { const b = await r.json().catch(() => ({})) as { message?: string }; throw new Error(b.message ?? 'Request failed.') }; return r.json() as Promise<DashboardResponse> })
-      .then((body) => { if (active) { setData(body); setError('') } })
-      .catch((e: Error) => { if (active) { setError(e.message); setData(null) } })
-      .finally(() => { if (active) setLoading(false) })
-    return () => { active = false }
-  }, [filters, refreshTick])
-
-  const generatedAt = data?.generatedAt ? new Intl.DateTimeFormat('en-AU', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(data.generatedAt)) : 'Waiting for data'
-  const statusTone = error ? 'error' : loading ? 'loading' : 'live'
-  const statusText = error ? 'Error loading data' : loading ? 'Loading…' : 'Live from HubSpot'
-
-  const tableRows = useMemo(() => {
-    const rows = data?.table ?? []
-    const q = tableSearch.trim().toLowerCase()
-    if (!q) return rows
-    return rows.filter((r) => [r.dealId, r.contactEmail, r.bookedBy, r.vtdStatus, r.tdStatus, r.vehicleState, r.userState, r.inferredInterstate].join(' ').toLowerCase().includes(q))
-  }, [data?.table, tableSearch])
-
-  const pageCount = Math.max(1, Math.ceil(tableRows.length / PAGE_SIZE))
-  const safePage = Math.min(page, pageCount)
-  const pagedRows = tableRows.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE)
-
-  return (
-    <>
-      <div className="filters-bar">
-        <span className="filter-label">Filters</span>
-        <select className="filter-select" value={pendingFilters.bookedBy} onChange={(e) => setPendingFilters((p) => ({ ...p, bookedBy: e.target.value as DashboardFilters['bookedBy'] }))}>
-          <option value="all">All — Booked By</option><option value="agent">Agent</option><option value="customer">Customer</option>
-        </select>
-        <input className="filter-input" type="date" value={pendingFilters.startDate} onChange={(e) => setPendingFilters((p) => ({ ...p, startDate: e.target.value }))} />
-        <span className="range-sep">–</span>
-        <input className="filter-input" type="date" value={pendingFilters.endDate} onChange={(e) => setPendingFilters((p) => ({ ...p, endDate: e.target.value }))} />
-        <div className="filter-sep" />
-        <select className="filter-select" value={pendingFilters.vehicleState} onChange={(e) => setPendingFilters((p) => ({ ...p, vehicleState: e.target.value }))}>
-          <option value="all">All — Vehicle State</option>
-          {data?.options.vehicleStates.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-        </select>
-        <select className="filter-select" value={pendingFilters.userState} onChange={(e) => setPendingFilters((p) => ({ ...p, userState: e.target.value }))}>
-          <option value="all">All — User State</option>
-          {data?.options.userStates.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-        </select>
-        <select className="filter-select" value={pendingFilters.interstate} onChange={(e) => setPendingFilters((p) => ({ ...p, interstate: e.target.value as DashboardFilters['interstate'] }))}>
-          <option value="all">All — Interstate</option><option value="yes">Interstate: Yes</option><option value="no">Interstate: No</option>
-        </select>
-        <select className="filter-select" value={pendingFilters.inferredInterstate} onChange={(e) => setPendingFilters((p) => ({ ...p, inferredInterstate: e.target.value as DashboardFilters['inferredInterstate'] }))}>
-          <option value="all">All — Inferred Interstate</option><option value="yes">Inferred: Yes</option><option value="no">Inferred: No</option>
-        </select>
-        <div className="filter-sep" />
-        <button type="button" className="btn btn-primary" onClick={() => { setPage(1); setFilters(pendingFilters); setRefreshTick((t) => t + 1) }}>Apply</button>
-        <button type="button" className="btn" onClick={() => { setPendingFilters(DEFAULT_FILTERS); setFilters(DEFAULT_FILTERS); setTableSearch(''); setPage(1) }}>Clear</button>
-        <div className="filter-sep" />
-        <div className="status-pill"><div className={`dot ${statusTone}`} /><span>{statusText}</span></div>
-        <span className="updated-text">Updated {generatedAt}</span>
-        <button type="button" className="btn" onClick={() => { setLoading(true); setRefreshTick((t) => t + 1) }}>↻ Refresh</button>
+        <div className="card">
+          <div className="card-header"><div><div className="card-title">BCs</div></div></div>
+          <div className="card-body" style={{ overflowX: 'auto' }}>
+            <MiniBarChart buckets={buckets} getTD={(b) => b.td.bc} getVTD={(b) => b.vtd.bc} tdColor="#16a34a" vtdColor="#7c3aed" tdLabel="TD" vtdLabel="VTD" />
+          </div>
+        </div>
       </div>
-      <main className="main">
-        {error ? <div className="error-box">{error}</div> : null}
-        {loading ? <div className="info-box">Loading from HubSpot…</div> : null}
-        <div className="metrics-row">
-          <MetricCard color="c-red" icon="📋" value={data?.summary.booked} label="VTD Booked" desc="Unique users with VTD booked" />
-          <MetricCard color="c-blue" icon="✅" value={data?.summary.completed} label="VTD Completed" desc="TD Done or walk-in/check-in signal" />
-          <MetricCard color="c-green" icon="🎯" value={data?.summary.bcs} label="Booking Confirmations" desc="Deals with booking confirm date set" />
-          <MetricCard color="c-amber" icon="↩" value={data?.summary.cancelledReturned} label="Cancelled / Returned" desc="Deals with cancel or return date set" />
-          <MetricCard color="c-purple" icon="📊" value={data ? `${data.summary.conversionRate}%` : undefined} label="BC Conversion" desc="BCs ÷ completed VTDs" />
-        </div>
-        <div className="content-grid">
-          <BreakdownCard title="Booked By" subtitle="Agent vs customer-initiated" items={data?.breakdowns.bookedBy ?? []} />
-          <BreakdownCard title="Vehicle State" subtitle="By car location / state" items={data?.breakdowns.vehicleState ?? []} />
-          <BreakdownCard title="Test Drive Status" subtitle="Signal distribution across deals" items={data?.breakdowns.testDriveStatus ?? []} />
-          <BreakdownCard title="Interstate vs Local" subtitle="Sale type distribution" items={data?.breakdowns.interstate ?? []} />
-          <BreakdownCard title="Inferred Interstate" subtitle="Delivery state vs vehicle state" items={data?.breakdowns.inferredInterstate ?? []} />
-        </div>
-        <div className="card table-card">
-          <div className="card-header">
-            <div><div className="card-title">Deal Records</div><div className="card-sub">Excluding cars24 and yopmail accounts</div></div>
-            <input className="filter-input table-search" type="search" placeholder="Search deal / contact / status" value={tableSearch} onChange={(e) => { setPage(1); setTableSearch(e.target.value) }} />
-          </div>
-          <div className="table-wrap">
-            <table>
-              <thead><tr><th>Deal</th><th>Contact</th><th>VTD Status</th><th>Booked By</th><th>TD Status</th><th>Completed</th><th>BC Date</th><th>Cancel/Return</th><th>Veh. State</th><th>User State</th><th>Interstate</th><th>Inferred</th></tr></thead>
-              <tbody>
-                {pagedRows.length ? pagedRows.map((row) => (
-                  <tr key={`${row.dealId}-${row.contactEmail}`}>
-                    <td>{row.dealId}</td><td>{row.contactEmail}</td><td>{row.vtdStatus}</td><td>{row.bookedBy}</td>
-                    <td>{row.tdStatus}</td><td>{row.completed ? 'Yes' : 'No'}</td><td>{row.bcDate || '–'}</td><td>{row.cancelReturnDate || '–'}</td>
-                    <td>{row.vehicleState}</td><td>{row.userState}</td><td>{row.interstate}</td><td>{row.inferredInterstate}</td>
-                  </tr>
-                )) : <tr><td colSpan={12} className="empty-state">No rows match the current filters.</td></tr>}
-              </tbody>
-            </table>
-          </div>
-          <Pagination page={safePage} pageCount={pageCount} total={tableRows.length} pageSize={PAGE_SIZE} onPage={setPage} />
-        </div>
-      </main>
-    </>
+    </div>
   )
 }
 
@@ -276,7 +164,6 @@ function ComparisonTab() {
   const [data, setData] = useState<TDComparisonResponse | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
-  const [granularity, setGranularity] = useState<Granularity>('weekly')
 
   function apply() {
     const params = new URLSearchParams()
@@ -291,8 +178,10 @@ function ComparisonTab() {
       .finally(() => setLoading(false))
   }
 
-  // Aggregate daily → selected granularity client-side (instant, no refetch)
-  const buckets = useMemo(() => data ? aggregateBuckets(data.dailyBuckets, granularity) : [], [data, granularity])
+  // All 3 granularities computed client-side — no refetch
+  const daily   = useMemo(() => data ? aggregateBuckets(data.dailyBuckets, 'daily')   : [], [data])
+  const weekly  = useMemo(() => data ? aggregateBuckets(data.dailyBuckets, 'weekly')  : [], [data])
+  const monthly = useMemo(() => data ? aggregateBuckets(data.dailyBuckets, 'monthly') : [], [data])
 
   const t = data?.totals
   const pct = (num?: number, den?: number) => den ? `${Math.round((num ?? 0) / den * 100)}%` : '–'
@@ -300,15 +189,6 @@ function ComparisonTab() {
   return (
     <>
       <div className="filters-bar">
-        <span className="filter-label">Granularity</span>
-        <div className="granularity-toggle">
-          {(['daily', 'weekly', 'monthly'] as const).map((g) => (
-            <button key={g} type="button" className={`gran-btn ${granularity === g ? 'active' : ''}`} onClick={() => setGranularity(g)}>
-              {g.charAt(0).toUpperCase() + g.slice(1)}
-            </button>
-          ))}
-        </div>
-        <div className="filter-sep" />
         <span className="filter-label">Filters</span>
         <select className="filter-select" value={pendingFilters.bookedBy} onChange={(e) => setPendingFilters((p) => ({ ...p, bookedBy: e.target.value as TDComparisonFilters['bookedBy'] }))}>
           <option value="all">All — Booked By</option><option value="agent">Agent</option><option value="customer">Customer</option>
@@ -338,19 +218,25 @@ function ComparisonTab() {
 
       <main className="main">
         {error ? <div className="error-box">{error}</div> : null}
-        {!data && !loading && !error ? <div className="info-box">Set your filters and click <strong>Apply</strong> to load TD vs VTD data.</div> : null}
+        {!data && !loading && !error ? <div className="info-box">Set filters and click <strong>Apply</strong> to load.</div> : null}
         {loading ? <div className="info-box">Loading from HubSpot…</div> : null}
 
         {data && (
           <>
-            {/* Summary */}
-            <div className="card" style={{ marginBottom: 16 }}>
+            {/* Summary table */}
+            <div className="card" style={{ marginBottom: 20 }}>
               <div className="card-header">
                 <div><div className="card-title">Summary</div><div className="card-sub">TD vs VTD · from {data.filters.startDate || 'Apr 2026'} · excl. cars24 &amp; yopmail</div></div>
               </div>
               <div style={{ overflowX: 'auto' }}>
                 <table>
-                  <thead><tr><th>Metric</th><th style={{ color: '#64748b' }}>TD</th><th style={{ color: '#dc2626' }}>VTD</th></tr></thead>
+                  <thead>
+                    <tr>
+                      <th>Metric</th>
+                      <th style={{ color: '#64748b' }}>TD</th>
+                      <th style={{ color: '#dc2626' }}>VTD</th>
+                    </tr>
+                  </thead>
                   <tbody>
                     <tr>
                       <td style={{ fontWeight: 600 }}>Booked</td>
@@ -372,33 +258,17 @@ function ComparisonTab() {
               </div>
             </div>
 
-            {/* 3 separate charts */}
-            <div className="content-grid" style={{ gridTemplateColumns: '1fr 1fr 1fr' }}>
-              <div className="card">
-                <div className="card-header"><div><div className="card-title">Booked</div><div className="card-sub">TD vs VTD booked over time</div></div></div>
-                <div className="card-body" style={{ overflowX: 'auto' }}>
-                  <MiniBarChart buckets={buckets} getTD={(b) => b.td.booked} getVTD={(b) => b.vtd.booked} tdColor="#64748b" vtdColor="#dc2626" tdLabel="TD Booked" vtdLabel="VTD Booked" />
-                </div>
-              </div>
-              <div className="card">
-                <div className="card-header"><div><div className="card-title">Conducted</div><div className="card-sub">TD vs VTD conducted over time</div></div></div>
-                <div className="card-body" style={{ overflowX: 'auto' }}>
-                  <MiniBarChart buckets={buckets} getTD={(b) => b.td.conducted} getVTD={(b) => b.vtd.conducted} tdColor="#0ea5e9" vtdColor="#d97706" tdLabel="TD Conducted" vtdLabel="VTD Conducted" />
-                </div>
-              </div>
-              <div className="card">
-                <div className="card-header"><div><div className="card-title">Booking Confirmations</div><div className="card-sub">TD vs VTD BCs over time</div></div></div>
-                <div className="card-body" style={{ overflowX: 'auto' }}>
-                  <MiniBarChart buckets={buckets} getTD={(b) => b.td.bc} getVTD={(b) => b.vtd.bc} tdColor="#16a34a" vtdColor="#7c3aed" tdLabel="TD BCs" vtdLabel="VTD BCs" />
-                </div>
-              </div>
-            </div>
+            {/* All 3 granularities on the page — no toggle, no refetch */}
+            <ChartRow title="Monthly" buckets={monthly} />
+            <ChartRow title="Weekly" buckets={weekly} />
+            <ChartRow title="Daily" buckets={daily} />
           </>
         )}
       </main>
     </>
   )
 }
+
 
 // ── Shared components ─────────────────────────────────────────────────────────
 function MetricCard({ color, icon, value, label, desc }: { color: string; icon: string; value?: number | string; label: string; desc: string }) {
