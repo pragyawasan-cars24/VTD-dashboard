@@ -214,7 +214,7 @@ export async function getTDComparisonData(params) {
     if (!matchesDeal(deal, isoDate, filters)) continue
     if (!matchesInferredInterstate(inferred, filters)) continue
 
-    const conducted = COMPLETED_TD_STATUSES.has(normalizeKey(deal.testDriveStatus)) || Boolean(deal.walkInDate) || Boolean(deal.completedDate)
+    const conducted = COMPLETED_TD_STATUSES.has(normalizeKey(deal.testDriveStatus)) || Boolean(deal.completedDate)
     const hasBc = Boolean(deal.bookingConfirmDate)
 
     totals.td.booked++
