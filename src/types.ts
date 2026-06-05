@@ -56,7 +56,6 @@ export type DashboardResponse = {
 
 // ── Tab 2 types ──────────────────────────────────────────────────────────────
 export type TDComparisonFilters = {
-  granularity: Granularity
   bookedBy: BookedByFilter
   startDate: string
   endDate: string
@@ -75,23 +74,10 @@ export type TDBucket = {
 
 export type TDComparisonResponse = {
   generatedAt: string
-  granularity: Granularity
   filters: TDComparisonFilters
-  buckets: TDBucket[]
+  dailyBuckets: TDBucket[]
   totals: {
     td: { booked: number; conducted: number; bc: number }
     vtd: { booked: number; conducted: number; bc: number }
   }
-  table: Array<{
-    dealId: string
-    type: 'TD' | 'VTD'
-    contactEmail: string
-    bookedDate: string
-    conducted: boolean
-    bcDate: string
-    vehicleState: string
-    userState: string
-    interstate: string
-    bookedBy: string
-  }>
 }
