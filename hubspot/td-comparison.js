@@ -11,12 +11,15 @@ import {
 const COMPLETED_TD_STATUSES = new Set(['TEST DRIVE DONE', 'COMPLETED'])
 const CUSTOMER_VALUES = new Set(['CUSTOMER'])
 const VTD_CONDUCTED_STATUSES = new Set(['COMPLETED'])
-const DEFAULT_START_EPOCH_MS = 1775001600000 // 2026-04-01 UTC
+const DEFAULT_START_DATE = '2026-05-18'
+const CACHE_TTL_MS = 5 * 60 * 1000
+const CACHE_LIMIT = 8
+const rawDataCache = new Map()
 
 function parseFilters(params) {
   return {
     bookedBy: params.get('bookedBy') || 'all',
-    startDate: params.get('startDate') || '2026-04-01',
+    startDate: params.get('startDate') || DEFAULT_START_DATE,
     endDate: params.get('endDate') || '',
     vehicleState: params.get('vehicleState') || 'all',
     userState: params.get('userState') || 'all',
@@ -26,12 +29,46 @@ function parseFilters(params) {
 }
 
 function dateToEpochMs(isoDate) {
-  if (!isoDate) return DEFAULT_START_EPOCH_MS
+  if (!isoDate) return Date.parse(DEFAULT_START_DATE + 'T00:00:00Z')
   return new Date(isoDate + 'T00:00:00Z').getTime()
 }
 
+function dateToEndEpochMs(isoDate) {
+  if (!isoDate) return null
+  return new Date(isoDate + 'T23:59:59.999Z').getTime()
+}
+
+function buildDateRangeFilters(propertyName, startEpochMs, endEpochMs) {
+  const filters = [{ propertyName, operator: 'GTE', value: String(startEpochMs) }]
+  if (endEpochMs) filters.push({ propertyName, operator: 'LTE', value: String(endEpochMs) })
+  return filters
+}
+
+function cacheKeyFor(filters) {
+  return `${filters.startDate || DEFAULT_START_DATE}|${filters.endDate || ''}`
+}
+
+function getCachedRawData(filters) {
+  const key = cacheKeyFor(filters)
+  const cached = rawDataCache.get(key)
+  if (!cached) return null
+  if (Date.now() - cached.timestamp > CACHE_TTL_MS) {
+    rawDataCache.delete(key)
+    return null
+  }
+  return cached.value
+}
+
+function setCachedRawData(filters, value) {
+  const key = cacheKeyFor(filters)
+  rawDataCache.set(key, { timestamp: Date.now(), value })
+  while (rawDataCache.size > CACHE_LIMIT) {
+    rawDataCache.delete(rawDataCache.keys().next().value)
+  }
+}
+
 // ── Fetchers (200/page for speed) ────────────────────────────────────────────
-async function fetchTDDeals(startEpochMs) {
+async function fetchTDDeals(startEpochMs, endEpochMs) {
   const properties = [
     'order_id', 'td_booking_slot_date', 'td_booked_by',
     'test_drive_status', 'test_drive_completed_date',
@@ -45,7 +82,7 @@ async function fetchTDDeals(startEpochMs) {
       method: 'POST',
       body: JSON.stringify({
         filterGroups: [{ filters: [
-          { propertyName: 'td_booking_slot_date', operator: 'GTE', value: String(startEpochMs) },
+          ...buildDateRangeFilters('td_booking_slot_date', startEpochMs, endEpochMs),
           { propertyName: 'test_drive_type', operator: 'EQ', value: 'TD' },
         ]}],
         properties, limit: 200, after,
@@ -71,7 +108,7 @@ async function fetchTDDeals(startEpochMs) {
   return deals
 }
 
-async function fetchVTDDeals() {
+async function fetchVTDDeals(startEpochMs, endEpochMs) {
   const properties = [
     'order_id', 'virtual_test_drive_status', 'virtual_test_drive_booked_by',
     'vtd_date_and_time', 'test_drive_status', 'booking_confirm_date',
@@ -84,6 +121,7 @@ async function fetchVTDDeals() {
       method: 'POST',
       body: JSON.stringify({
         filterGroups: [{ filters: [
+          ...buildDateRangeFilters('vtd_date_and_time', startEpochMs, endEpochMs),
           { propertyName: 'virtual_test_drive_status', operator: 'IN', values: ['BOOKED', 'COMPLETED'] },
         ]}],
         properties, limit: 200, after,
@@ -163,19 +201,34 @@ function ensureDay(map, isoDate) {
   return map.get(isoDate)
 }
 
-// ── Main ──────────────────────────────────────────────────────────────────────
-export async function getTDComparisonData(params) {
-  const filters = parseFilters(params)
+async function getRawComparisonData(filters) {
+  const cached = getCachedRawData(filters)
+  if (cached) return cached
+
   const startEpochMs = dateToEpochMs(filters.startDate)
-
-  // Fetch both in parallel
-  const [tdDeals, vtdDeals] = await Promise.all([fetchTDDeals(startEpochMs), fetchVTDDeals()])
-
-  // VTD: contact associations (parallelised in batches of 100)
+  const endEpochMs = dateToEndEpochMs(filters.endDate)
+  const [tdDeals, fetchedVtdDeals] = await Promise.all([
+    fetchTDDeals(startEpochMs, endEpochMs),
+    fetchVTDDeals(startEpochMs, endEpochMs),
+  ])
+  const vtdDeals = fetchedVtdDeals.filter((deal) => {
+    const isoDate = toISODate(deal.bookedDateRaw)
+    return isoDate && !isExcludedOrderId(deal.orderId)
+  })
   const vtdIds = vtdDeals.map((d) => d.id)
   const vtdAssocMap = await readDealToContactAssociations(vtdIds)
   const uniqueContactIds = [...new Set([...vtdAssocMap.values()].flat())]
   const contactMap = await readContacts(uniqueContactIds)
+  const rawData = { tdDeals, vtdDeals, vtdAssocMap, contactMap }
+
+  setCachedRawData(filters, rawData)
+  return rawData
+}
+
+// ── Main ──────────────────────────────────────────────────────────────────────
+export async function getTDComparisonData(params) {
+  const filters = parseFilters(params)
+  const { tdDeals, vtdDeals, vtdAssocMap, contactMap } = await getRawComparisonData(filters)
 
   // Daily buckets map (we always store daily; client aggregates to weekly/monthly)
   const dayMap = new Map()

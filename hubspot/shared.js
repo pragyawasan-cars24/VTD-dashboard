@@ -23,8 +23,10 @@ export function isExcludedOrderId(orderId) {
 }
 
 export async function hubspotFetch(path, init) {
-  const token = process.env.HUBSPOT_TOKEN
-  if (!token) throw new Error('Missing HUBSPOT_TOKEN environment variable.')
+  const token = normalizeValue(process.env.HUBSPOT_TOKEN)
+  if (!token || token === 'undefined' || token === 'replace_me') {
+    throw new Error('Missing HUBSPOT_TOKEN environment variable.')
+  }
 
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     const response = await fetch(`${HUBSPOT_BASE_URL}${path}`, {

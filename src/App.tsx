@@ -9,7 +9,7 @@ const DEFAULT_FILTERS: DashboardFilters = {
 }
 
 const DEFAULT_TD_FILTERS: TDComparisonFilters = {
-  bookedBy: 'all', startDate: '2026-04-01', endDate: '',
+  bookedBy: 'all', startDate: '2026-05-18', endDate: '',
   vehicleState: 'all', userState: 'all',
   interstate: 'all', inferredInterstate: 'all',
 }
@@ -52,59 +52,124 @@ function aggregateBuckets(daily: TDBucket[], granularity: Granularity): (TDBucke
 // ── Mini bar chart ────────────────────────────────────────────────────────────
 type ChartBucket = TDBucket & { label: string }
 
+function getNiceStep(rawStep: number) {
+  if (rawStep <= 0) return 1
+  const magnitude = 10 ** Math.floor(Math.log10(rawStep))
+  const fraction = rawStep / magnitude
+  const niceFraction =
+    fraction <= 1 ? 1 :
+      fraction <= 2 ? 2 :
+        fraction <= 2.5 ? 2.5 :
+          fraction <= 5 ? 5 :
+            fraction <= 7.5 ? 7.5 : 10
+  return niceFraction * magnitude
+}
+
+function formatTick(value: number) {
+  return new Intl.NumberFormat('en-AU', {
+    notation: value >= 1000 ? 'compact' : 'standard',
+    maximumFractionDigits: 1,
+  }).format(value)
+}
+
+function formatBarValue(value: number) {
+  return new Intl.NumberFormat('en-AU').format(value)
+}
+
 function MiniBarChart({ buckets, getTD, getVTD, tdColor, vtdColor, tdLabel, vtdLabel }: {
   buckets: ChartBucket[]
   getTD: (b: ChartBucket) => number
   getVTD: (b: ChartBucket) => number
   tdColor: string; vtdColor: string; tdLabel: string; vtdLabel: string
 }) {
+  const containerRef = useRef<HTMLDivElement>(null)
   const svgRef = useRef<SVGSVGElement>(null)
+  const [containerWidth, setContainerWidth] = useState(520)
   const [tooltip, setTooltip] = useState<{ x: number; y: number; lines: string[] } | null>(null)
+
+  useEffect(() => {
+    const node = containerRef.current
+    if (!node) return
+
+    const updateWidth = () => setContainerWidth(Math.max(320, Math.floor(node.clientWidth)))
+    updateWidth()
+
+    const observer = new ResizeObserver(updateWidth)
+    observer.observe(node)
+    return () => observer.disconnect()
+  }, [])
+
   if (!buckets.length) return <div className="empty-state">No data.</div>
-  const H = 160, MARGIN = { top: 10, right: 8, bottom: 48, left: 28 }
-  const BAR_W = 7, BAR_GAP = 2, PAIR_W = BAR_W * 2 + BAR_GAP, BUCKET_GAP = 5
-  const totalW = MARGIN.left + buckets.length * (PAIR_W + BUCKET_GAP) + MARGIN.right
+  const H = 260, MARGIN = { top: 30, right: 14, bottom: 58, left: 44 }
+  const minBucketStep = buckets.length > 36 ? 22 : buckets.length > 14 ? 30 : 42
+  const availablePlotW = Math.max(1, containerWidth - MARGIN.left - MARGIN.right)
+  const plotW = Math.max(availablePlotW, buckets.length * minBucketStep)
+  const totalW = Math.ceil(MARGIN.left + plotW + MARGIN.right)
+  const bucketStep = plotW / buckets.length
+  const barGap = Math.max(2, Math.min(5, bucketStep * 0.08))
+  const BAR_W = Math.max(5, Math.min(22, (bucketStep - barGap) * 0.32))
+  const PAIR_W = BAR_W * 2 + barGap
   const chartH = H - MARGIN.top - MARGIN.bottom
   const maxVal = Math.max(1, ...buckets.flatMap((b) => [getTD(b), getVTD(b)]))
-  const scaleY = (v: number) => chartH - (v / maxVal) * chartH
-  const ticks = Array.from({ length: 4 }, (_, i) => Math.round((maxVal / 3) * i))
+  const tickStep = getNiceStep(maxVal / 4)
+  const axisMax = Math.max(tickStep * 4, maxVal)
+  const scaleY = (v: number) => chartH - (v / axisMax) * chartH
+  const ticks = Array.from({ length: 5 }, (_, i) => tickStep * i)
+  const labelInterval = buckets.length > 34 ? Math.ceil(buckets.length / 12) : buckets.length > 18 ? 2 : 1
   return (
-    <div style={{ position: 'relative' }}>
-      <svg ref={svgRef} viewBox={`0 0 ${totalW} ${H}`} style={{ width: '100%', height: H, display: 'block', overflow: 'visible' }}>
+    <div ref={containerRef} className="comparison-chart">
+      <svg ref={svgRef} width={totalW} height={H} viewBox={`0 0 ${totalW} ${H}`} className="comparison-chart-svg">
         {ticks.map((tick) => {
           const cy = MARGIN.top + scaleY(tick)
           return <g key={tick}>
             <line x1={MARGIN.left} x2={totalW - MARGIN.right} y1={cy} y2={cy} stroke="#f0f0ef" strokeWidth={1} />
-            <text x={MARGIN.left - 3} y={cy + 3} textAnchor="end" fontSize={7} fill="#a8a29e">{tick}</text>
+            <text x={MARGIN.left - 7} y={cy + 4} textAnchor="end" fontSize={10} fill="#8c8580">{formatTick(tick)}</text>
           </g>
         })}
         {buckets.map((bucket, bi) => {
-          const bx = MARGIN.left + bi * (PAIR_W + BUCKET_GAP)
+          const bucketCenter = MARGIN.left + bi * bucketStep + bucketStep / 2
+          const bx = bucketCenter - PAIR_W / 2
           const tdVal = getTD(bucket), vtdVal = getVTD(bucket)
+          const tdValueLabel = formatBarValue(tdVal)
+          const vtdValueLabel = formatBarValue(vtdVal)
+          const tooltipLines = [
+            `${tdLabel}: ${tdValueLabel}`,
+            `${vtdLabel}: ${vtdValueLabel}`,
+            bucket.label,
+          ]
+          const valueY = Math.max(13, MARGIN.top + Math.min(scaleY(tdVal), scaleY(vtdVal)) - 15)
+          const valueFontSize = bucketStep < 28 ? 8 : 9
+          const showLabel = bi % labelInterval === 0 || bi === buckets.length - 1
           return <g key={bucket.dateKey}>
-            <rect x={bx} y={MARGIN.top + scaleY(tdVal)} width={BAR_W} height={Math.max(0, (tdVal / maxVal) * chartH)} fill={tdColor} rx={1}
-              onMouseEnter={(e) => { const r = svgRef.current?.getBoundingClientRect(); if (r) setTooltip({ x: e.clientX - r.left, y: e.clientY - r.top - 8, lines: [`${tdLabel}: ${tdVal}`, bucket.label] }) }}
+            <rect x={bx} y={MARGIN.top + scaleY(tdVal)} width={BAR_W} height={Math.max(0, (tdVal / axisMax) * chartH)} fill={tdColor} rx={1}
+              onMouseEnter={(e) => { const r = svgRef.current?.getBoundingClientRect(); if (r) setTooltip({ x: e.clientX - r.left, y: e.clientY - r.top - 8, lines: tooltipLines }) }}
               onMouseLeave={() => setTooltip(null)} />
-            <rect x={bx + BAR_W + BAR_GAP} y={MARGIN.top + scaleY(vtdVal)} width={BAR_W} height={Math.max(0, (vtdVal / maxVal) * chartH)} fill={vtdColor} rx={1}
-              onMouseEnter={(e) => { const r = svgRef.current?.getBoundingClientRect(); if (r) setTooltip({ x: e.clientX - r.left, y: e.clientY - r.top - 8, lines: [`${vtdLabel}: ${vtdVal}`, bucket.label] }) }}
+            <rect x={bx + BAR_W + barGap} y={MARGIN.top + scaleY(vtdVal)} width={BAR_W} height={Math.max(0, (vtdVal / axisMax) * chartH)} fill={vtdColor} rx={1}
+              onMouseEnter={(e) => { const r = svgRef.current?.getBoundingClientRect(); if (r) setTooltip({ x: e.clientX - r.left, y: e.clientY - r.top - 8, lines: tooltipLines }) }}
               onMouseLeave={() => setTooltip(null)} />
-            <text x={bx + PAIR_W / 2} y={H - MARGIN.bottom + 11} textAnchor="middle" fontSize={7} fill="#78716c"
-              transform={`rotate(-45, ${bx + PAIR_W / 2}, ${H - MARGIN.bottom + 11})`}>
-              {bucket.label.split(' – ')[0]}
+            <text className="comparison-chart-value-label" x={bucketCenter} y={valueY} textAnchor="middle" fontSize={valueFontSize} fontWeight={700}>
+              <tspan fill={tdColor}>{tdValueLabel}</tspan>
+              <tspan x={bucketCenter} dy={valueFontSize + 1} fill={vtdColor}>{vtdValueLabel}</tspan>
             </text>
+            {showLabel && (
+              <text x={bucketCenter} y={H - MARGIN.bottom + 22} textAnchor="end" fontSize={10} fill="#6f6761"
+                transform={`rotate(-35, ${bucketCenter}, ${H - MARGIN.bottom + 22})`}>
+                {bucket.label.split(' – ')[0]}
+              </text>
+            )}
           </g>
         })}
         <line x1={MARGIN.left} x2={totalW - MARGIN.right} y1={MARGIN.top + chartH} y2={MARGIN.top + chartH} stroke="#e7e5e4" strokeWidth={1} />
       </svg>
       {tooltip && (
-        <div style={{ position: 'absolute', left: tooltip.x + 8, top: tooltip.y, background: '#1c1917', color: 'white', borderRadius: 6, padding: '5px 9px', fontSize: 11, pointerEvents: 'none', whiteSpace: 'nowrap', zIndex: 10 }}>
+        <div className="comparison-chart-tooltip" style={{ left: tooltip.x + 8, top: tooltip.y }}>
           {tooltip.lines.map((l, i) => <div key={i}>{l}</div>)}
         </div>
       )}
-      <div style={{ display: 'flex', gap: 12, marginTop: 6 }}>
+      <div className="comparison-chart-legend">
         {[{ label: tdLabel, color: tdColor }, { label: vtdLabel, color: vtdColor }].map((s) => (
-          <div key={s.label} style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 10, color: '#57534e' }}>
-            <div style={{ width: 8, height: 8, borderRadius: 2, background: s.color, flexShrink: 0 }} />{s.label}
+          <div key={s.label} className="comparison-chart-legend-item">
+            <div className="comparison-chart-legend-swatch" style={{ background: s.color }} />{s.label}
           </div>
         ))}
       </div>
@@ -115,24 +180,24 @@ function MiniBarChart({ buckets, getTD, getVTD, tdColor, vtdColor, tdLabel, vtdL
 // ── Chart row: 3 charts (Booked / Conducted / BCs) for one granularity ───────
 function ChartRow({ title, buckets }: { title: string; buckets: ChartBucket[] }) {
   return (
-    <div style={{ marginBottom: 20 }}>
-      <div style={{ fontSize: 11, fontWeight: 600, color: '#78716c', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.05em' }}>{title}</div>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
+    <div className="comparison-section">
+      <div className="comparison-section-title">{title}</div>
+      <div className="comparison-chart-grid">
         <div className="card">
           <div className="card-header"><div className="card-title">Booked</div></div>
-          <div className="card-body" style={{ overflowX: 'auto' }}>
+          <div className="card-body comparison-card-body">
             <MiniBarChart buckets={buckets} getTD={(b) => b.td.booked} getVTD={(b) => b.vtd.booked} tdColor="#64748b" vtdColor="#dc2626" tdLabel="TD" vtdLabel="VTD" />
           </div>
         </div>
         <div className="card">
           <div className="card-header"><div className="card-title">Conducted</div></div>
-          <div className="card-body" style={{ overflowX: 'auto' }}>
+          <div className="card-body comparison-card-body">
             <MiniBarChart buckets={buckets} getTD={(b) => b.td.conducted} getVTD={(b) => b.vtd.conducted} tdColor="#0ea5e9" vtdColor="#d97706" tdLabel="TD" vtdLabel="VTD" />
           </div>
         </div>
         <div className="card">
           <div className="card-header"><div className="card-title">Booking Confirmations</div></div>
-          <div className="card-body" style={{ overflowX: 'auto' }}>
+          <div className="card-body comparison-card-body">
             <MiniBarChart buckets={buckets} getTD={(b) => b.td.bc} getVTD={(b) => b.vtd.bc} tdColor="#16a34a" vtdColor="#7c3aed" tdLabel="TD" vtdLabel="VTD" />
           </div>
         </div>
@@ -183,7 +248,6 @@ function VTDTab() {
       if (value && value !== 'all') params.set(key, value)
     }
     let active = true
-    setLoading(true)
     fetch(`/api/dashboard?${params.toString()}`, { cache: 'no-store' })
       .then(async (r) => { if (!r.ok) { const b = await r.json().catch(() => ({})) as { message?: string }; throw new Error(b.message ?? 'Request failed.') }; return r.json() as Promise<DashboardResponse> })
       .then((body) => { if (active) { setData(body); setError('') } })
@@ -233,8 +297,8 @@ function VTDTab() {
           <option value="all">All — Inferred Interstate</option><option value="yes">Inferred: Yes</option><option value="no">Inferred: No</option>
         </select>
         <div className="filter-sep" />
-        <button type="button" className="btn btn-primary" onClick={() => { setPage(1); setFilters(pendingFilters); setRefreshTick((t) => t + 1) }}>Apply</button>
-        <button type="button" className="btn" onClick={() => { setPendingFilters(DEFAULT_FILTERS); setFilters(DEFAULT_FILTERS); setTableSearch(''); setPage(1) }}>Clear</button>
+        <button type="button" className="btn btn-primary" onClick={() => { setLoading(true); setPage(1); setFilters(pendingFilters); setRefreshTick((t) => t + 1) }}>Apply</button>
+        <button type="button" className="btn" onClick={() => { setLoading(true); setPendingFilters(DEFAULT_FILTERS); setFilters(DEFAULT_FILTERS); setTableSearch(''); setPage(1) }}>Clear</button>
         <div className="filter-sep" />
         <div className="status-pill"><div className={`dot ${statusTone}`} /><span>{statusText}</span></div>
         <span className="updated-text">Updated {generatedAt}</span>
