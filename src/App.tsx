@@ -435,6 +435,11 @@ function ComparisonTab() {
                       <td><strong style={{ fontSize: 18 }}>{t?.td.bc ?? '–'}</strong><span style={{ marginLeft: 8, fontSize: 12, color: '#78716c' }}>{pct(t?.td.bc, t?.td.conducted)}</span></td>
                       <td><strong style={{ fontSize: 18 }}>{t?.vtd.bc ?? '–'}</strong><span style={{ marginLeft: 8, fontSize: 12, color: '#78716c' }}>{pct(t?.vtd.bc, t?.vtd.conducted)}</span></td>
                     </tr>
+                    <tr>
+                      <td style={{ fontWeight: 600 }}>Booked to BC <span style={{ fontWeight: 400, color: '#78716c', fontSize: 11 }}>BCs % of booked</span></td>
+                      <td><strong style={{ fontSize: 18 }}>{pct(t?.td.bc, t?.td.booked)}</strong></td>
+                      <td><strong style={{ fontSize: 18 }}>{pct(t?.vtd.bc, t?.vtd.booked)}</strong></td>
+                    </tr>
                   </tbody>
                 </table>
               </div>
