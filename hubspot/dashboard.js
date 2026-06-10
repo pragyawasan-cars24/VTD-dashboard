@@ -11,7 +11,7 @@ const DEFAULT_CONFIG = {
     cancelReturnDate: 'cancelled___return_date',
     userState: 'delivery_state',
     interstate: 'interstate_sale_yesno',
-    filterDate: 'td_booking_slot_date',
+    filterDate: 'virtual_test_drive_status_timestamp',
   },
   contact: {
     email: 'email',
@@ -118,11 +118,28 @@ function matchesInterstate(value, filters, config) {
 
 function matchesDateRange(value, startDate, endDate) {
   if (!startDate && !endDate) return true
-  if (!value) return false
-  const isoDate = value.slice(0, 10)
+  const isoDate = toISODate(value)
+  if (!isoDate) return false
   if (startDate && isoDate < startDate) return false
   if (endDate && isoDate > endDate) return false
   return true
+}
+
+function toISODate(raw) {
+  const value = normalizeValue(raw)
+  if (!value) return ''
+  if (/^\d{10,}$/.test(value)) return new Date(Number(value)).toISOString().slice(0, 10)
+  if (/^\d{4}-\d{2}-\d{2}/.test(value)) return value.slice(0, 10)
+  if (/^\d{2}\/\d{2}\/\d{4}/.test(value)) {
+    const [dd, mm, yyyy] = value.slice(0, 10).split('/')
+    return `${yyyy}-${mm}-${dd}`
+  }
+  return ''
+}
+
+function isOnOrAfterDate(value, anchorDate) {
+  const isoDate = toISODate(value)
+  return Boolean(isoDate && anchorDate && isoDate >= anchorDate)
 }
 
 function inferInterstate(userState, vehicleState) {
@@ -141,7 +158,8 @@ function aggregateContacts(deals, associationMap, contactMap, filters, config) {
 
   for (const deal of deals) {
     if (isExcludedOrderId(deal.orderId)) continue
-    if (!matchesDateRange(deal.filterDate, filters.startDate, filters.endDate)) continue
+    const vtdBookedDate = toISODate(deal.filterDate)
+    if (!matchesDateRange(vtdBookedDate, filters.startDate, filters.endDate)) continue
     if (filters.bookedBy !== 'all') {
       const isCustomer = isCustomerBookedBy(deal.bookedBy, config)
       if (filters.bookedBy === 'customer' && !isCustomer) continue
@@ -175,10 +193,11 @@ function aggregateContacts(deals, associationMap, contactMap, filters, config) {
       const walkInDone = Boolean(contact.walkInDate)
       const tdDone = isCompletedTdStatus(deal.testDriveStatus, config)
       const vtdBooked = config.values.vtdStatuses.includes(normalizeKey(deal.vtdStatus))
+      const bcFromVtdBooked = isOnOrAfterDate(deal.bookingConfirmDate, vtdBookedDate)
 
       existing.qualifiesBooked = existing.qualifiesBooked || vtdBooked
       existing.qualifiesCompleted = existing.qualifiesCompleted || (vtdBooked && (tdDone || walkInDone))
-      existing.qualifiesBc = existing.qualifiesBc || (existing.qualifiesBooked && Boolean(deal.bookingConfirmDate))
+      existing.qualifiesBc = existing.qualifiesBc || (vtdBooked && bcFromVtdBooked)
 
       aggregates.set(contactId, existing)
     }
@@ -214,7 +233,8 @@ export async function getDashboardData(params) {
 
   for (const deal of deals) {
     if (isExcludedOrderId(deal.orderId)) continue
-    if (!matchesDateRange(deal.filterDate, filters.startDate, filters.endDate)) continue
+    const vtdBookedDate = toISODate(deal.filterDate)
+    if (!matchesDateRange(vtdBookedDate, filters.startDate, filters.endDate)) continue
     if (filters.bookedBy !== 'all') {
       const isCustomer = isCustomerBookedBy(deal.bookedBy, config)
       if (filters.bookedBy === 'customer' && !isCustomer) continue
@@ -230,6 +250,7 @@ export async function getDashboardData(params) {
       const vehicleState = deal.vehicleState || 'Unknown'
       const userState = deal.userState || contact.fallbackUserState || 'Unknown'
       const inferredInterstate = inferInterstate(userState, vehicleState)
+      const bcFromVtdBooked = isOnOrAfterDate(deal.bookingConfirmDate, vtdBookedDate)
 
       if (filters.vehicleState !== 'all' && vehicleState !== filters.vehicleState) continue
       if (filters.userState !== 'all' && userState !== filters.userState) continue
@@ -239,10 +260,11 @@ export async function getDashboardData(params) {
         dealId: deal.orderId || deal.id,
         contactEmail: contact.email,
         vtdStatus: deal.vtdStatus || 'Unknown',
+        vtdBookedDate,
         bookedBy: deal.bookedBy || 'Unknown',
         tdStatus: deal.testDriveStatus || 'Unknown',
         completed: isCompletedTdStatus(deal.testDriveStatus, config) || Boolean(contact.walkInDate) || normalizeKey(deal.vtdStatus) === 'COMPLETED',
-        bcDate: deal.bookingConfirmDate || '',
+        bcDate: bcFromVtdBooked ? deal.bookingConfirmDate : '',
         cancelReturnDate: deal.cancelReturnDate || '',
         vehicleState,
         userState,
@@ -282,8 +304,9 @@ export async function getDashboardData(params) {
     table,
     assumptions: [
       'Booked users are unique associated contacts on deals where virtual_test_drive_status is BOOKED or COMPLETED.',
+      'Date filters are anchored on the VTD booked date.',
       'VTD completed is treated as a booked user with either test_drive_status showing Test Drive Done/COMPLETED or a contact check_in_walk_in_date.',
-      'BCs are counted as unique filtered booked contacts that have at least one associated deal with booking_confirm_date.',
+      'BCs are counted as unique filtered booked contacts that have booking_confirm_date on or after the VTD booked date.',
       'Cancelled/Returned counts rows where deal cancelled___return_date is available.',
       'cars24, yopmail, WL46WF, and ss@mm.com test data are excluded.',
       'Inferred interstate is Yes when delivery state and vehicle state differ, No when they match.',

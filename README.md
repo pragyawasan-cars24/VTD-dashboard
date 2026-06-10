@@ -25,7 +25,7 @@ The app is currently wired to these live properties:
 
 - Booked users: unique associated contacts on deals where `virtual_test_drive_status` is `BOOKED` or `COMPLETED`
 - Completed users: booked users with either `test_drive_status = Test Drive Done / COMPLETED` or a contact `check_in_walk_in_date`
-- BCs: unique filtered contacts with at least one associated deal where `booking_confirm_date` exists
+- BCs: unique filtered contacts with at least one associated deal where `booking_confirm_date` is on or after the VTD booked date
 - Exclusions: contact emails containing `cars24` or `yopmail`
 
 ## Local run

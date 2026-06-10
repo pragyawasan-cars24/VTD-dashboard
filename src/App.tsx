@@ -264,7 +264,7 @@ function VTDTab() {
     const rows = data?.table ?? []
     const q = tableSearch.trim().toLowerCase()
     if (!q) return rows
-    return rows.filter((r) => [r.dealId, r.contactEmail, r.bookedBy, r.vtdStatus, r.tdStatus, r.vehicleState, r.userState, r.inferredInterstate].join(' ').toLowerCase().includes(q))
+    return rows.filter((r) => [r.dealId, r.contactEmail, r.bookedBy, r.vtdStatus, r.vtdBookedDate, r.tdStatus, r.vehicleState, r.userState, r.inferredInterstate].join(' ').toLowerCase().includes(q))
   }, [data?.table, tableSearch])
 
   const pageCount = Math.max(1, Math.ceil(tableRows.length / PAGE_SIZE))
@@ -310,7 +310,7 @@ function VTDTab() {
         <div className="metrics-row">
           <MetricCard color="c-red" icon="📋" value={data?.summary.booked} label="VTD Booked" desc="Unique users with VTD booked" />
           <MetricCard color="c-blue" icon="✅" value={data?.summary.completed} label="VTD Completed" desc="TD Done or walk-in/check-in signal" />
-          <MetricCard color="c-green" icon="🎯" value={data?.summary.bcs} label="Booking Confirmations" desc="Deals with booking confirm date set" />
+          <MetricCard color="c-green" icon="🎯" value={data?.summary.bcs} label="Booking Confirmations" desc="BC date on or after VTD booked" />
           <MetricCard color="c-amber" icon="↩" value={data?.summary.cancelledReturned} label="Cancelled / Returned" desc="Deals with cancel or return date set" />
           <MetricCard color="c-purple" icon="📊" value={data ? `${data.summary.conversionRate}%` : undefined} label="BC Conversion" desc="BCs ÷ completed VTDs" />
         </div>
@@ -328,15 +328,15 @@ function VTDTab() {
           </div>
           <div className="table-wrap">
             <table>
-              <thead><tr><th>Deal</th><th>Contact</th><th>VTD Status</th><th>Booked By</th><th>TD Status</th><th>Completed</th><th>BC Date</th><th>Cancel/Return</th><th>Veh. State</th><th>User State</th><th>Interstate</th><th>Inferred</th></tr></thead>
+              <thead><tr><th>Deal</th><th>Contact</th><th>VTD Status</th><th>VTD Booked</th><th>Booked By</th><th>TD Status</th><th>Completed</th><th>BC Date</th><th>Cancel/Return</th><th>Veh. State</th><th>User State</th><th>Interstate</th><th>Inferred</th></tr></thead>
               <tbody>
                 {pagedRows.length ? pagedRows.map((row) => (
                   <tr key={`${row.dealId}-${row.contactEmail}`}>
-                    <td>{row.dealId}</td><td>{row.contactEmail}</td><td>{row.vtdStatus}</td><td>{row.bookedBy}</td>
+                    <td>{row.dealId}</td><td>{row.contactEmail}</td><td>{row.vtdStatus}</td><td>{row.vtdBookedDate || '–'}</td><td>{row.bookedBy}</td>
                     <td>{row.tdStatus}</td><td>{row.completed ? 'Yes' : 'No'}</td><td>{row.bcDate || '–'}</td><td>{row.cancelReturnDate || '–'}</td>
                     <td>{row.vehicleState}</td><td>{row.userState}</td><td>{row.interstate}</td><td>{row.inferredInterstate}</td>
                   </tr>
-                )) : <tr><td colSpan={12} className="empty-state">No rows match the current filters.</td></tr>}
+                )) : <tr><td colSpan={13} className="empty-state">No rows match the current filters.</td></tr>}
               </tbody>
             </table>
           </div>

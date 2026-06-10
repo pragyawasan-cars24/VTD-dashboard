@@ -33,6 +33,7 @@ export function getDashboardData(params: URLSearchParams): Promise<{
     dealId: string
     contactEmail: string
     vtdStatus: string
+    vtdBookedDate: string
     bookedBy: string
     tdStatus: string
     completed: boolean
